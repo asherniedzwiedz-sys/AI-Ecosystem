@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="off" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#4f473c"/>
+      <stop offset="0.6" stop-color="#2a251e"/>
+      <stop offset="1" stop-color="#1a1712"/>
+    </radialGradient>
+    <radialGradient id="lit" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#fff6e0"/>
+      <stop offset="0.35" stop-color="#f7bd52"/>
+      <stop offset="1" stop-color="#e8941a"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f5b041" stop-opacity="0.75"/>
+      <stop offset="0.45" stop-color="#f5b041" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#f5b041" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect id="bg" width="512" height="512" rx="112" fill="#16130f"/>
+  <g id="art">
+    <rect x="64" y="64" width="384" height="384" rx="76" fill="#1f1b16" stroke="#302a22" stroke-width="4"/>
+    <!-- eight lines around the operator, tinted with each AI's lamp color -->
+    <g stroke="#0d0b08" stroke-width="5">
+      <circle cx="156" cy="156" r="36" fill="url(#off)"/>
+      <circle cx="256" cy="156" r="36" fill="url(#off)"/>
+      <circle cx="356" cy="156" r="36" fill="url(#off)"/>
+      <circle cx="156" cy="256" r="36" fill="url(#off)"/>
+      <circle cx="356" cy="256" r="36" fill="url(#off)"/>
+      <circle cx="156" cy="356" r="36" fill="url(#off)"/>
+      <circle cx="256" cy="356" r="36" fill="url(#off)"/>
+      <circle cx="356" cy="356" r="36" fill="url(#off)"/>
+    </g>
+    <g opacity="0.55">
+      <circle cx="156" cy="156" r="14" fill="#e8875c"/>
+      <circle cx="256" cy="156" r="14" fill="#19c37d"/>
+      <circle cx="356" cy="156" r="14" fill="#f062a8"/>
+      <circle cx="356" cy="256" r="14" fill="#9b87f5"/>
+      <circle cx="356" cy="356" r="14" fill="#c6dd4a"/>
+      <circle cx="256" cy="356" r="14" fill="#e7e5e4"/>
+      <circle cx="156" cy="356" r="14" fill="#5b7bff"/>
+      <circle cx="156" cy="256" r="14" fill="#22b8c9"/>
+    </g>
+    <circle cx="256" cy="256" r="110" fill="url(#glow)"/>
+    <circle cx="256" cy="256" r="44" fill="url(#lit)" stroke="#7a4a05" stroke-width="5"/>
+  </g>
+</svg>

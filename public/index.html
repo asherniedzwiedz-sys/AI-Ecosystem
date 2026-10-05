@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>AI Switchboard</title>
+    <meta name="description" content="Type a prompt, the operator picks the best AI, one tap sends it there." />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#F3EEE4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#16130F" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Switchboard" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script>
+      // Apply the saved theme before first paint.
+      try {
+        const theme = localStorage.getItem("switchboard.theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
+    <script type="module" src="/js/app.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-lamp" aria-hidden="true"></span>
+          <h1>AI Switchboard</h1>
+        </div>
+        <div class="topbar-right">
+          <div class="counter" title="Calls routed on this device">
+            <span class="label">Calls routed</span>
+            <span class="digits" id="counter" aria-live="polite">0000</span>
+          </div>
+          <button class="icon-btn" id="install-btn" type="button" hidden aria-label="Install app" title="Install app">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
+          </button>
+          <button class="icon-btn" id="sound-btn" type="button" aria-pressed="true" aria-label="Sound on" title="Sound">
+            <svg class="when-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" /></svg>
+            <svg class="when-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="m16 9.5 5 5m0-5-5 5" /></svg>
+          </button>
+          <button class="icon-btn" id="theme-btn" type="button" aria-label="Toggle theme" title="Theme">
+            <svg class="when-light" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" /></svg>
+            <svg class="when-dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="console" aria-label="Your prompt">
+          <label class="mono-label" for="prompt">Incoming call</label>
+          <textarea
+            id="prompt"
+            rows="3"
+            enterkeyhint="go"
+            placeholder="What do you need? e.g. “book a table for 4 Friday at 7”"
+            autocomplete="off"
+          ></textarea>
+          <div class="console-actions">
+            <button class="btn btn-primary" id="route-btn" type="button">
+              <span>Route call</span>
+              <kbd>⏎</kbd>
+            </button>
+            <button class="btn btn-ghost" id="surprise-btn" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5" /><circle cx="8.5" cy="8.5" r="1.2" /><circle cx="15.5" cy="15.5" r="1.2" /><circle cx="15.5" cy="8.5" r="1.2" /><circle cx="8.5" cy="15.5" r="1.2" /><circle cx="12" cy="12" r="1.2" /></svg>
+              <span>Surprise me</span>
+            </button>
+            <span class="hint">Shift + ⏎ for a new line</span>
+          </div>
+        </section>
+
+        <section class="readout" id="readout" aria-live="polite">
+          <p class="readout-line">
+            <span class="tag">Operator</span>
+            <span id="quip">Switchboard's open. Who are we calling?</span>
+          </p>
+          <p class="readout-line readout-why" id="why-line" hidden>
+            <span class="tag">Why</span>
+            <span id="reason"></span>
+          </p>
+          <div class="readout-actions" id="readout-actions" hidden>
+            <a class="btn btn-send" id="send-pick" target="_blank" rel="noopener"></a>
+            <a class="btn btn-ghost btn-alt" id="send-alt" target="_blank" rel="noopener"></a>
+            <span class="source" id="source"></span>
+          </div>
+        </section>
+
+        <section class="board" id="board" aria-label="AI lines"></section>
+
+        <p class="footnote">
+          Tap any line to send your prompt there. It's copied to your clipboard too; lines marked
+          <span class="mono-chip">paste</span> open the site and you paste it in.
+        </p>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
