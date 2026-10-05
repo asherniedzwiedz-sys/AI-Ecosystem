@@ -1,0 +1,17 @@
+{
+  "name": "ai-switchboard",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Type a prompt, a router picks the best AI, one tap sends it there.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
+  }
+}
