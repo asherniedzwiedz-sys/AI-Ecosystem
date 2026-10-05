@@ -9,6 +9,9 @@ Lines on the board: Claude, ChatGPT, Muse, Gemini, Copilot, Grok, DeepSeek, Perp
 - **Routing:** the page POSTs your prompt to `/api/route`, a Vercel function that asks Claude to pick. It answers `{pick, runnerUp, quip, reason}`. The API key lives only on the server.
 - **Fallback:** if the router is unreachable (offline, no key, timeout after 10s), the page uses the keyword rules in `public/js/rules.js`. The readout says which one routed the call.
 - **Sending:** tiles are links. Claude, ChatGPT, Perplexity, Grok and Copilot open with the prompt prefilled. Gemini, DeepSeek and Muse just open, and you paste (the prompt is always copied to your clipboard).
+- **Send to all:** copies the prompt once and opens all 8 AIs in new tabs (fills in a random prompt if the box is empty). Browsers often block extra tabs; the page says how many were blocked so you can allow pop-ups and retry.
+- **Tile sizes:** every send counts toward that AI (stored in `switchboard-usage`). Your most-used AI gets a 2x2 tile, the next two get 2x1, the rest 1x1 (ties don't promote anyone). The first visit offers a head start: pick your regulars, start even, or a random board. Settings has Redo setup and Reset usage.
+- **Themes:** tiles render through a theme. **Creatures** (default) shows each AI's mascot in a lamp-colored ring that bobs, and hops when routing lands on it; **Classic** is the original lamp tiles. Pick one in Settings (stored in `switchboard-theme`).
 - **Offline:** a service worker caches the app, so it opens with no signal and routes with the rules.
 
 ## Project layout
@@ -17,11 +20,15 @@ Lines on the board: Claude, ChatGPT, Muse, Gemini, Copilot, Grok, DeepSeek, Perp
 public/            static site (Vercel serves this folder)
   index.html
   styles.css
-  js/app.js        UI: board, lamp roulette, sending, toggles
-  js/ais.js        the AIs: order, URLs, colors, quips, router notes (shared with the API)
+  js/app.js        UI: board, lamp roulette, sending, Send to all, settings
+  js/ais.js        the AIs: order, URLs, colors, mascots, quips, router notes (shared with the API)
+  js/themes.js     tile themes (THEMES registry: classic, creatures)
+  js/usage.js      usage counts -> rank -> tile size tiers
+  js/setup.js      first-run setup dialog
   js/rules.js      offline keyword router (rulesPick)
   js/audio.js      WebAudio ticks + ding
   js/surprises.js  "Surprise me" prompts
+  mascots/         creature art, one <id>.webp per AI
   manifest.webmanifest, sw.js, icons/
 api/route.js       POST /api/route (GET = health check)
 lib/router.js      Claude call, prompt, JSON schema, validation
@@ -31,6 +38,10 @@ test/              node:test suites
 ```
 
 To add or remove an AI, edit `ORDER` and `AIS` in `public/js/ais.js` and add its keywords in `public/js/rules.js`. The router prompt is built from `ais.js`, so it picks up the change automatically.
+
+**Mascots:** drop a square image at `public/mascots/<id>.webp` (about 640x640 keeps it light). Until a file exists, that tile shows the AI's initial on its lamp color.
+
+**New theme:** add an entry to `THEMES` in `public/js/themes.js` with `id`, `name` and `renderTile(ai, rank, count)`, then style it under `.board[data-skin="<id>"]`. The contract (badge element, state classes) is in the comment at the top of that file; it shows up in Settings automatically.
 
 ## Run locally
 

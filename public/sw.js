@@ -1,7 +1,8 @@
 // Service worker: makes the app installable and keeps it working offline.
 // Network-first, so a deploy shows up on the next load; the cache is the offline fallback.
-// Bump VERSION when the shell file list changes.
-const VERSION = "v5";
+// Bump VERSION when the shell file list changes. Mascot images aren't listed:
+// they're cached the first time they load, so a missing one can't break install.
+const VERSION = "v6";
 const CACHE = `switchboard-${VERSION}`;
 const SHELL = [
   "/",
@@ -11,6 +12,9 @@ const SHELL = [
   "/js/rules.js",
   "/js/audio.js",
   "/js/surprises.js",
+  "/js/themes.js",
+  "/js/usage.js",
+  "/js/setup.js",
   "/manifest.webmanifest",
   "/icons/icon.svg",
   "/icons/icon-192.png",

@@ -26,10 +26,11 @@
     />
     <link rel="stylesheet" href="/styles.css" />
     <script>
-      // Apply the saved theme before first paint.
+      // Apply the saved light/dark mode before first paint.
+      // (v5 stored it as switchboard.theme; that name now belongs to the tile theme.)
       try {
-        const theme = localStorage.getItem("switchboard.theme");
-        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+        const mode = localStorage.getItem("switchboard.mode") ?? localStorage.getItem("switchboard.theme");
+        if (mode === "light" || mode === "dark") document.documentElement.dataset.theme = mode;
       } catch {}
     </script>
     <script type="module" src="/js/app.js"></script>
@@ -53,9 +54,12 @@
             <svg class="when-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" /></svg>
             <svg class="when-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="m16 9.5 5 5m0-5-5 5" /></svg>
           </button>
-          <button class="icon-btn" id="theme-btn" type="button" aria-label="Toggle theme" title="Theme">
+          <button class="icon-btn" id="mode-btn" type="button" aria-label="Toggle dark mode" title="Light / dark">
             <svg class="when-light" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" /></svg>
             <svg class="when-dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>
+          </button>
+          <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" title="Settings" aria-haspopup="dialog">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>
           </button>
         </div>
       </header>
@@ -79,8 +83,13 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5" /><circle cx="8.5" cy="8.5" r="1.2" /><circle cx="15.5" cy="15.5" r="1.2" /><circle cx="15.5" cy="8.5" r="1.2" /><circle cx="8.5" cy="15.5" r="1.2" /><circle cx="12" cy="12" r="1.2" /></svg>
               <span>Surprise me</span>
             </button>
+            <button class="btn btn-ghost" id="send-all-btn" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2" /><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2" /></svg>
+              <span>Send to all</span>
+            </button>
             <span class="hint">Shift + ⏎ for a new line</span>
           </div>
+          <p class="popup-hint" id="popup-hint" role="status" hidden></p>
         </section>
 
         <section class="readout" id="readout" aria-live="polite">
@@ -107,6 +116,63 @@
         </p>
       </main>
     </div>
+
+    <dialog class="sheet" id="settings" aria-labelledby="settings-title">
+      <form method="dialog" class="sheet-body">
+        <div class="sheet-head">
+          <h2 id="settings-title">Settings</h2>
+          <button class="icon-btn" value="close" aria-label="Close settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+        <fieldset class="field">
+          <legend class="mono-label">Tile theme</legend>
+          <div class="segmented" id="theme-picker"></div>
+        </fieldset>
+        <div class="field">
+          <p class="mono-label">Tile sizes</p>
+          <p class="field-note">Tiles grow as you send to them. Your most-used AI gets the big tile, the next two get wide ones.</p>
+          <div class="field-actions">
+            <button type="button" class="btn btn-ghost" id="redo-setup">Redo setup</button>
+            <button type="button" class="btn btn-ghost" id="reset-usage">Reset usage</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="sheet" id="setup" aria-labelledby="setup-title">
+      <div class="sheet-body">
+        <section class="setup-step" id="setup-choose">
+          <p class="mono-label">First call</p>
+          <h2 id="setup-title">Set up your switchboard</h2>
+          <p class="field-note">Tiles grow as you use them. Want a head start?</p>
+          <div class="setup-options">
+            <button type="button" class="setup-option" data-choice="regulars">
+              <strong>Pick my regulars</strong>
+              <span>Tap the AIs you already use, favorite first. They start bigger.</span>
+            </button>
+            <button type="button" class="setup-option" data-choice="even">
+              <strong>Start even</strong>
+              <span>Every line starts the same size and grows as you use it.</span>
+            </button>
+            <button type="button" class="setup-option" data-choice="surprise">
+              <strong>Surprise me</strong>
+              <span>A random head start. Let the operator decide.</span>
+            </button>
+          </div>
+        </section>
+        <section class="setup-step" id="setup-pick" hidden>
+          <p class="mono-label">Pick my regulars</p>
+          <h2>Which AIs do you use?</h2>
+          <p class="field-note">Tap them in order, favorite first. Tap again to remove one.</p>
+          <div class="pick-grid" id="pick-grid"></div>
+          <div class="field-actions">
+            <button type="button" class="btn btn-ghost" id="setup-back">Back</button>
+            <button type="button" class="btn btn-primary" id="setup-done" disabled>Done</button>
+          </div>
+        </section>
+      </div>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>

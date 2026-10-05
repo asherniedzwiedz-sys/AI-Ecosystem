@@ -2,6 +2,9 @@ import { AIS, ORDER, sendTarget } from "./ais.js";
 import { rulesPick } from "./rules.js";
 import { ding, setSound, tick, unlockAudio } from "./audio.js";
 import { randomSurprise } from "./surprises.js";
+import { DEFAULT_THEME, THEMES, THEME_KEY, getTheme } from "./themes.js";
+import { USAGE_KEY, emptyUsage, layoutBoard, parseUsage } from "./usage.js";
+import { SETUP_KEY, createSetup } from "./setup.js";
 
 const API_URL = "/api/route";
 const API_TIMEOUT_MS = 10_000;
@@ -9,12 +12,25 @@ const MIN_SPIN_MS = 900; // even an instant answer gets a little roulette
 const FAST_STEP_MS = 60;
 const SLOWEST_STEP_MS = 320;
 const TYPE_MS = 14; // "Surprise me" typewriter speed per character
+const RELAYOUT_DELAY_MS = 350; // let a tap finish before tiles resize
+const FLASH_MS = 1000; // Send to all lamp flash
+
+const KEYS = {
+  calls: "switchboard.calls",
+  sound: "switchboard.sound",
+  mode: "switchboard.mode", // light / dark
+  theme: THEME_KEY,
+  usage: USAGE_KEY,
+  setup: SETUP_KEY,
+};
 
 const $ = (id) => document.getElementById(id);
 const els = {
   prompt: $("prompt"),
   routeBtn: $("route-btn"),
   surpriseBtn: $("surprise-btn"),
+  sendAllBtn: $("send-all-btn"),
+  popupHint: $("popup-hint"),
   board: $("board"),
   quip: $("quip"),
   whyLine: $("why-line"),
@@ -25,7 +41,12 @@ const els = {
   source: $("source"),
   counter: $("counter"),
   soundBtn: $("sound-btn"),
-  themeBtn: $("theme-btn"),
+  modeBtn: $("mode-btn"),
+  settingsBtn: $("settings-btn"),
+  settings: $("settings"),
+  themePicker: $("theme-picker"),
+  redoSetup: $("redo-setup"),
+  resetUsage: $("reset-usage"),
   installBtn: $("install-btn"),
   toast: $("toast"),
 };
@@ -34,19 +55,23 @@ const tiles = {};
 let current = null; // last routing result
 let busy = false;
 let lastSurprise = null;
+let usage = emptyUsage();
+let themeId = DEFAULT_THEME;
+let relayoutTimer;
+let setup;
 
 // localStorage can throw (private mode, blocked storage): treat it as optional.
 const store = {
   get(key, fallback) {
     try {
-      return localStorage.getItem(`switchboard.${key}`) ?? fallback;
+      return localStorage.getItem(key) ?? fallback;
     } catch {
       return fallback;
     }
   },
   set(key, value) {
     try {
-      localStorage.setItem(`switchboard.${key}`, value);
+      localStorage.setItem(key, value);
     } catch {}
   },
 };
@@ -61,28 +86,71 @@ function el(tag, className, content) {
 
 /* ---------- board ---------- */
 
+// One persistent link per AI; the theme fills its inside, usage sets its size.
 function buildBoard() {
-  ORDER.forEach((id, i) => {
-    const ai = AIS[id];
-    const tile = el("a", "tile", [
-      el("div", "tile-top", [el("span", "lamp"), el("span", "line-no", `LINE ${String(i + 1).padStart(2, "0")}`)]),
-      el("div", "tile-name", ai.name),
-      el("div", "tile-tag", ai.tagline),
-      el("div", "tile-foot", [
-        el("span", "maker", ai.maker),
-        el("span", ai.prefill ? "fill-chip auto" : "fill-chip", ai.prefill ? "auto-fill" : "paste"),
-      ]),
-      el("span", "badge", "Pick"),
-    ]);
+  for (const id of ORDER) {
+    const tile = el("a", "tile");
     tile.dataset.id = id;
     tile.target = "_blank";
     tile.rel = "noopener";
-    tile.style.setProperty("--c", ai.color);
+    tile.style.setProperty("--c", AIS[id].color);
     tile.addEventListener("click", () => onSend(id));
-    els.board.append(tile);
     tiles[id] = tile;
-  });
+  }
+  // A missing mascot image hides itself so the theme's fallback shows.
+  els.board.addEventListener(
+    "error",
+    (e) => {
+      if (e.target instanceof HTMLImageElement) e.target.hidden = true;
+    },
+    true,
+  );
   refreshLinks();
+}
+
+function gridColumns() {
+  return getComputedStyle(els.board).gridTemplateColumns.split(" ").filter(Boolean).length || 4;
+}
+
+function renderBoard() {
+  const theme = getTheme(themeId);
+  els.board.dataset.skin = theme.id;
+  const layout = layoutBoard(usage, gridColumns());
+
+  for (const { id, rank, count, tier, colSpan } of layout) {
+    const tile = tiles[id];
+    tile.dataset.size = tier;
+    tile.style.gridColumn = colSpan ? `span ${colSpan}` : "";
+    const signature = `${theme.id}|${rank}|${count}`;
+    if (tile.dataset.signature !== signature) {
+      tile.innerHTML = theme.renderTile({ id, ...AIS[id] }, rank, count);
+      tile.dataset.signature = signature;
+    }
+  }
+
+  // DOM order follows rank so tab order matches what you see. Only move
+  // nodes when the order changed, since moving restarts their animations.
+  const inOrder = layout.every(({ id }, i) => els.board.children[i] === tiles[id]);
+  if (!inOrder) els.board.append(...layout.map(({ id }) => tiles[id]));
+
+  if (current) labelBadges(current.pick, current.runnerUp);
+}
+
+function scheduleRelayout(delay) {
+  clearTimeout(relayoutTimer);
+  relayoutTimer = setTimeout(function relayout() {
+    if (busy) {
+      relayoutTimer = setTimeout(relayout, RELAYOUT_DELAY_MS);
+      return;
+    }
+    renderBoard();
+  }, delay);
+}
+
+function recordSends(ids, relayoutDelay = RELAYOUT_DELAY_MS) {
+  for (const id of ids) usage[id] += 1;
+  store.set(KEYS.usage, JSON.stringify(usage));
+  scheduleRelayout(relayoutDelay);
 }
 
 // Tiles are real links (never popup-blocked, work in the installed app),
@@ -116,13 +184,33 @@ function clearPicks() {
   for (const id of ORDER) tiles[id].classList.remove("lit", "picked", "alt");
 }
 
+function labelBadges(pick, runnerUp) {
+  tiles[pick].querySelector(".badge").textContent = "Pick";
+  tiles[runnerUp].querySelector(".badge").textContent = "Alt";
+}
+
 function land(pick, runnerUp) {
   clearPicks();
   tiles[pick].classList.add("picked");
-  tiles[pick].querySelector(".badge").textContent = "Pick";
   tiles[runnerUp].classList.add("alt");
-  tiles[runnerUp].querySelector(".badge").textContent = "Alt";
+  labelBadges(pick, runnerUp);
   els.board.classList.add("has-pick");
+}
+
+// Replays a one-shot animation class on a tile (the theme decides what it looks like).
+function pulseClass(tile, className, ms) {
+  tile.classList.remove(className);
+  void tile.offsetWidth; // restart the animation
+  tile.classList.add(className);
+  setTimeout(() => tile.classList.remove(className), ms);
+}
+
+function celebrate(id) {
+  pulseClass(tiles[id], "hop", 900);
+}
+
+function flashAll() {
+  for (const id of ORDER) pulseClass(tiles[id], "flash", FLASH_MS);
 }
 
 /* ---------- sending ---------- */
@@ -153,6 +241,7 @@ function legacyCopy(text) {
 function onSend(id) {
   const prompt = els.prompt.value.trim();
   const name = AIS[id].name;
+  recordSends([id]);
   if (!prompt) {
     toast(`Opening ${name}.`);
     return;
@@ -160,6 +249,44 @@ function onSend(id) {
   copyText(prompt);
   const { prefilled } = sendTarget(id, prompt);
   toast(prefilled ? `Opening ${name} with your prompt. Also copied, just in case.` : `Copied. Paste it into ${name}.`);
+}
+
+// Opens every line at once. Must stay synchronous: browsers only allow
+// window.open inside the click itself, so no typewriter or awaits here.
+function sendAll() {
+  if (busy) return;
+  unlockAudio();
+  els.popupHint.hidden = true;
+
+  if (!els.prompt.value.trim()) {
+    lastSurprise = randomSurprise(lastSurprise);
+    els.prompt.value = lastSurprise;
+    refreshLinks();
+  }
+  const prompt = els.prompt.value.trim();
+  copyText(prompt);
+
+  let blocked = 0;
+  for (const id of ORDER) {
+    // No "noopener" feature here: with it, window.open always returns null and
+    // we couldn't tell a blocked tab from an opened one. Cut the link by hand.
+    const win = window.open(sendTarget(id, prompt).url, "_blank");
+    if (win) win.opener = null;
+    else blocked += 1;
+  }
+
+  recordSends(ORDER, FLASH_MS); // resize after the flash, not in the middle of it
+  bumpCounter(ORDER.length);
+  flashAll();
+  ding();
+
+  if (blocked) {
+    els.popupHint.textContent = `Your browser blocked ${blocked} of ${ORDER.length} tabs. Allow pop-ups for this site, then try again.`;
+    els.popupHint.hidden = false;
+    toast(`Opened ${ORDER.length - blocked} of ${ORDER.length}. Prompt copied.`);
+  } else {
+    toast(`Sent to all ${ORDER.length} lines. Prompt copied.`);
+  }
 }
 
 let toastTimer;
@@ -272,6 +399,7 @@ function setBusy(on) {
   document.body.classList.toggle("routing", on);
   els.routeBtn.disabled = on;
   els.surpriseBtn.disabled = on;
+  els.sendAllBtn.disabled = on;
   els.routeBtn.firstElementChild.textContent = on ? "Routing…" : "Route call";
 }
 
@@ -290,6 +418,7 @@ async function route() {
   setBusy(true);
   current = null;
   clearPicks();
+  els.popupHint.hidden = true;
   els.whyLine.hidden = true;
   els.actions.hidden = true;
   els.quip.textContent = "Ringing the lines…";
@@ -298,6 +427,7 @@ async function route() {
 
   current = result;
   land(result.pick, result.runnerUp);
+  celebrate(result.pick);
   els.quip.textContent = result.quip;
   els.reason.textContent = result.reason;
   els.whyLine.hidden = false;
@@ -330,15 +460,15 @@ async function surprise() {
   route();
 }
 
-/* ---------- counter, sound, theme, install ---------- */
+/* ---------- counter, sound, light/dark, install ---------- */
 
 function renderCounter(count) {
   els.counter.textContent = String(count).padStart(4, "0");
 }
 
-function bumpCounter() {
-  const count = Number(store.get("calls", "0")) + 1;
-  store.set("calls", String(count));
+function bumpCounter(by = 1) {
+  const count = Number(store.get(KEYS.calls, "0")) + by;
+  store.set(KEYS.calls, String(count));
   renderCounter(count);
   els.counter.classList.remove("bump");
   void els.counter.offsetWidth; // restart the animation
@@ -351,7 +481,7 @@ function applySound(on) {
   els.soundBtn.setAttribute("aria-label", on ? "Sound on" : "Sound off");
 }
 
-function resolvedTheme() {
+function resolvedMode() {
   const forced = document.documentElement.dataset.theme;
   if (forced) return forced;
   return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -362,8 +492,84 @@ function syncThemeColor() {
   for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.content = bg;
 }
 
+/* ---------- settings + setup ---------- */
+
+function applyTheme(id) {
+  themeId = getTheme(id).id;
+  store.set(KEYS.theme, themeId);
+  for (const input of els.themePicker.querySelectorAll("input")) input.checked = input.value === themeId;
+  renderBoard();
+}
+
+function buildThemePicker() {
+  for (const theme of Object.values(THEMES)) {
+    const input = el("input");
+    input.type = "radio";
+    input.name = "tile-theme";
+    input.value = theme.id;
+    input.id = `theme-${theme.id}`;
+    input.addEventListener("change", () => applyTheme(theme.id));
+    const label = el("label", "", [input, el("span", "", theme.name)]);
+    els.themePicker.append(label);
+  }
+}
+
+function resetUsage() {
+  usage = emptyUsage();
+  store.set(KEYS.usage, JSON.stringify(usage));
+  store.set(KEYS.calls, "0");
+  renderCounter(0);
+  renderBoard();
+}
+
+// Two taps to reset, so a stray tap can't wipe your history.
+let resetArmed = null;
+function onResetClick() {
+  if (!resetArmed) {
+    els.resetUsage.textContent = "Tap again to reset";
+    els.resetUsage.classList.add("armed");
+    resetArmed = setTimeout(disarmReset, 3000);
+    return;
+  }
+  disarmReset();
+  resetUsage();
+  toast("Usage reset. Every line is back to the same size.");
+}
+function disarmReset() {
+  clearTimeout(resetArmed);
+  resetArmed = null;
+  els.resetUsage.textContent = "Reset usage";
+  els.resetUsage.classList.remove("armed");
+}
+
+const SETUP_TOASTS = {
+  regulars: "Your regulars are up front. Tiles keep growing as you use them.",
+  even: "All lines start even. Tiles grow as you use them.",
+  surprise: "The operator shuffled the board. Tiles grow as you use them.",
+};
+
+function initSetup() {
+  setup = createSetup({
+    onApply(choice, seeded) {
+      usage = seeded;
+      store.set(KEYS.usage, JSON.stringify(usage));
+      store.set(KEYS.setup, choice);
+      renderBoard();
+      flashAll();
+      toast(SETUP_TOASTS[choice]);
+    },
+    onCancel() {
+      // Dismissing the first-run setup counts as "start even", so it doesn't nag.
+      if (!store.get(KEYS.setup, null)) store.set(KEYS.setup, "even");
+    },
+  });
+}
+
 function wireControls() {
-  els.prompt.addEventListener("input", refreshLinks);
+  els.prompt.addEventListener("input", () => {
+    refreshLinks();
+    els.popupHint.hidden = true;
+  });
   els.prompt.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
@@ -372,6 +578,7 @@ function wireControls() {
   });
   els.routeBtn.addEventListener("click", route);
   els.surpriseBtn.addEventListener("click", surprise);
+  els.sendAllBtn.addEventListener("click", sendAll);
   for (const link of [els.sendPick, els.sendAlt]) {
     link.addEventListener("click", () => onSend(link.dataset.id));
   }
@@ -379,19 +586,30 @@ function wireControls() {
   els.soundBtn.addEventListener("click", () => {
     const on = els.soundBtn.getAttribute("aria-pressed") !== "true";
     applySound(on);
-    store.set("sound", on ? "on" : "off");
+    store.set(KEYS.sound, on ? "on" : "off");
     if (on) {
       unlockAudio();
       ding();
     }
   });
 
-  els.themeBtn.addEventListener("click", () => {
-    const next = resolvedTheme() === "dark" ? "light" : "dark";
+  els.modeBtn.addEventListener("click", () => {
+    const next = resolvedMode() === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
-    store.set("theme", next);
+    store.set(KEYS.mode, next);
     syncThemeColor();
   });
+
+  els.settingsBtn.addEventListener("click", () => els.settings.showModal());
+  els.settings.addEventListener("close", disarmReset);
+  els.redoSetup.addEventListener("click", () => {
+    els.settings.close();
+    setup.open();
+  });
+  els.resetUsage.addEventListener("click", onResetClick);
+
+  // Column count changes at the phone breakpoint, so redo the gap filling.
+  matchMedia("(max-width: 760px)").addEventListener("change", renderBoard);
 
   let installPrompt = null;
   window.addEventListener("beforeinstallprompt", (e) => {
@@ -409,11 +627,17 @@ function wireControls() {
 }
 
 function init() {
+  usage = parseUsage(store.get(KEYS.usage, "{}"));
+  themeId = getTheme(store.get(KEYS.theme, DEFAULT_THEME)).id;
+  buildThemePicker();
   buildBoard();
+  applyTheme(themeId);
   wireControls();
-  renderCounter(Number(store.get("calls", "0")));
-  applySound(store.get("sound", "on") === "on");
+  initSetup();
+  renderCounter(Number(store.get(KEYS.calls, "0")));
+  applySound(store.get(KEYS.sound, "on") === "on");
   if (document.documentElement.dataset.theme) syncThemeColor();
+  if (!store.get(KEYS.setup, null)) setup.open();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch((err) => console.info("No service worker:", err.message));

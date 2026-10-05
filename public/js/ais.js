@@ -1,7 +1,8 @@
 // The AIs on the board. Shared by the page (tiles, links, quips) and the
 // router function (its system prompt), so this file is the single source of truth.
 
-// Tile order on the board. 2x4 on desktop, 4x2 on phones.
+// Default tile order and line numbers. Once you start sending, tiles are
+// re-ordered and sized by usage (see usage.js).
 export const ORDER = [
   "claude",
   "chatgpt",
@@ -19,6 +20,7 @@ export const AIS = {
     maker: "Anthropic",
     tagline: "Writing · code · docs",
     color: "#E8875C",
+    creature: "Terracotta starfish",
     home: "https://claude.ai/new",
     prefill: (q) => `https://claude.ai/new?q=${q}`,
     routerNotes:
@@ -34,6 +36,7 @@ export const AIS = {
     maker: "OpenAI",
     tagline: "All-rounder · images",
     color: "#19C37D",
+    creature: "Bioluminescent octopus",
     home: "https://chatgpt.com/",
     prefill: (q) => `https://chatgpt.com/?q=${q}`,
     routerNotes:
@@ -49,6 +52,7 @@ export const AIS = {
     maker: "Meta",
     tagline: "Agent · books · buys",
     color: "#F062A8",
+    creature: "Fluffy muse",
     home: "https://muse.ai",
     prefill: null,
     routerNotes:
@@ -64,6 +68,7 @@ export const AIS = {
     maker: "Google",
     tagline: "Gmail · YouTube · Maps",
     color: "#9B87F5",
+    creature: "Prismatic hummingbird",
     home: "https://gemini.google.com/app",
     prefill: null,
     routerNotes:
@@ -79,6 +84,7 @@ export const AIS = {
     maker: "Microsoft",
     tagline: "Excel · Word · Windows",
     color: "#C6DD4A",
+    creature: "Snowy owl",
     home: "https://copilot.microsoft.com/",
     prefill: (q) => `https://copilot.microsoft.com/?q=${q}`,
     routerNotes:
@@ -94,6 +100,7 @@ export const AIS = {
     maker: "xAI",
     tagline: "Live X pulse · hot takes",
     color: "#E7E5E4",
+    creature: "Cosmic fox",
     home: "https://grok.com/",
     prefill: (q) => `https://grok.com/?q=${q}`,
     routerNotes:
@@ -109,6 +116,7 @@ export const AIS = {
     maker: "DeepSeek",
     tagline: "Math · proofs · puzzles",
     color: "#5B7BFF",
+    creature: "Deep-sea whale",
     home: "https://chat.deepseek.com/",
     prefill: null,
     routerNotes:
@@ -124,6 +132,7 @@ export const AIS = {
     maker: "Perplexity",
     tagline: "Research · sources",
     color: "#22B8C9",
+    creature: "Electric phoenix",
     home: "https://www.perplexity.ai/",
     prefill: (q) => `https://www.perplexity.ai/search?q=${q}`,
     routerNotes:
@@ -135,6 +144,9 @@ export const AIS = {
     ],
   },
 };
+
+// Mascot art for the creatures theme. Missing files fall back to a lamp-colored badge.
+export const mascotSrc = (id) => `mascots/${id}.webp`;
 
 // Past this, a prefill URL risks being rejected, so we just open the site and paste.
 const MAX_PREFILL_URL = 7000;
