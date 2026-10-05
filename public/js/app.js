@@ -52,6 +52,7 @@ const els = {
 };
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const tiles = {};
+const renderedHtml = {}; // last renderTile output per AI
 let current = null; // last routing result
 let busy = false;
 let lastSurprise = null;
@@ -121,10 +122,12 @@ function renderBoard() {
     const tile = tiles[id];
     tile.dataset.size = tier;
     tile.style.gridColumn = colSpan ? `span ${colSpan}` : "";
-    const signature = `${theme.id}|${rank}|${count}`;
-    if (tile.dataset.signature !== signature) {
-      tile.innerHTML = theme.renderTile({ id, ...AIS[id] }, rank, count);
-      tile.dataset.signature = signature;
+    // Only swap the inside when the theme's output changed: rebuilding would
+    // recreate the mascot image, which flashes while it decodes again.
+    const html = theme.renderTile({ id, ...AIS[id] }, rank, count);
+    if (renderedHtml[id] !== html) {
+      tile.innerHTML = html;
+      renderedHtml[id] = html;
     }
   }
 

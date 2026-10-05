@@ -685,20 +685,22 @@ textarea::placeholder {
 /* ---------- creatures theme ---------- */
 
 .board[data-skin="creatures"] {
-  --row: 200px;
+  --row: 204px;
 }
 
+/* The top padding is a strip for the paste chip and the Pick/Alt badge, so
+   they never touch the porthole, even mid-bob on a narrow phone tile. */
 .board[data-skin="creatures"] .tile {
   --m: 104px;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px 12px;
+  padding: 26px 12px 14px;
   text-align: center;
 }
 
 .board[data-skin="creatures"] .tile[data-size="md"] {
-  --m: 136px;
+  --m: 130px;
 }
 
 .board[data-skin="creatures"] .tile[data-size="lg"] {
@@ -778,7 +780,7 @@ textarea::placeholder {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-6px);
+    transform: translateY(-5px);
   }
 }
 
@@ -829,8 +831,10 @@ textarea::placeholder {
 
 .creature-chip {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 6px;
+  left: 6px;
+  padding: 3px 5px;
+  font-size: 9.5px;
 }
 
 /* ---------- dialogs: settings + setup ---------- */
@@ -1074,15 +1078,15 @@ textarea::placeholder {
   .board[data-skin="creatures"] .tile {
     --m: 80px;
     gap: 6px;
-    padding: 12px 10px;
+    padding: 28px 10px 12px;
   }
 
   .board[data-skin="creatures"] .tile[data-size="md"] {
-    --m: 100px;
+    --m: 92px;
   }
 
   .board[data-skin="creatures"] .tile[data-size="lg"] {
-    --m: 200px;
+    --m: 190px;
   }
 
   .creature-name {
@@ -1100,6 +1104,7 @@ textarea::placeholder {
   .board[data-skin="classic"] .tile[data-size="lg"] .tile-name {
     font-size: 32px;
   }
+
 
   .tile {
     min-height: 0;
@@ -1220,6 +1225,10 @@ textarea::placeholder {
 @media (max-width: 374px) {
   .brand h1 {
     font-size: 17px;
+  }
+
+  .board[data-skin="creatures"] .tile {
+    --m: 72px;
   }
 }
 
