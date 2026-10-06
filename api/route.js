@@ -1,7 +1,8 @@
-// POST /api/route  { prompt }  ->  { pick, runnerUp, quip, reason, model, source }
+// POST /api/route  { prompt, attachment? }  ->  { pick, runnerUp, quip, reason, model, source }
+// attachment is metadata only ({ name, type, size, kind, excerpt? }); files never come here.
 // The Anthropic key lives in the ANTHROPIC_API_KEY env var on the server only.
 import Anthropic from "@anthropic-ai/sdk";
-import { DEFAULT_MODEL, RouterError, routePrompt } from "../lib/router.js";
+import { DEFAULT_MODEL, RouterError, normalizeAttachment, routePrompt } from "../lib/router.js";
 
 const MODEL = process.env.ROUTER_MODEL || DEFAULT_MODEL;
 const MAX_BODY_CHARS = 100_000;
@@ -38,21 +39,25 @@ export async function POST(request) {
   const ip = (request.headers.get("x-forwarded-for") || "local").split(",")[0].trim();
   if (rateLimited(ip)) return json({ error: "Too many calls. Give the operator a minute." }, 429);
 
-  let prompt;
+  let body;
   try {
     const raw = await request.text();
     if (raw.length > MAX_BODY_CHARS) return json({ error: "Prompt too long." }, 413);
-    prompt = JSON.parse(raw).prompt;
+    body = JSON.parse(raw);
   } catch {
     return json({ error: "Send JSON like {\"prompt\": \"...\"}." }, 400);
   }
-  if (typeof prompt !== "string" || !prompt.trim()) {
-    return json({ error: "Prompt is empty." }, 400);
+  if (body?.prompt != null && typeof body.prompt !== "string") {
+    return json({ error: "Prompt must be text." }, 400);
   }
+  const prompt = (body?.prompt ?? "").trim();
+  const attachment = normalizeAttachment(body?.attachment);
+  // A file on its own is enough to route.
+  if (!prompt && !attachment) return json({ error: "Prompt is empty." }, 400);
 
   client ??= new Anthropic();
   try {
-    const result = await routePrompt(prompt.trim(), { client, model: MODEL });
+    const result = await routePrompt(prompt, { client, model: MODEL, attachment });
     return json({ ...result, source: "llm" });
   } catch (err) {
     // Log the failure, never the prompt.

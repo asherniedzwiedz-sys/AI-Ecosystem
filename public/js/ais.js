@@ -25,6 +25,7 @@ export const AIS = {
     prefill: (q) => `https://claude.ai/new?q=${q}`,
     routerNotes:
       "Long-form writing and editing, coding and debugging, analyzing long documents or PDFs, careful nuanced reasoning, explaining technical concepts in depth, thoughtful advice.",
+    files: "PDFs, long documents, code files, images and screenshots.",
     quips: [
       "Patching you through to Claude. Bring your longest document.",
       "Claude on line one. It'll think before it speaks.",
@@ -41,6 +42,7 @@ export const AIS = {
     prefill: (q) => `https://chatgpt.com/?q=${q}`,
     routerNotes:
       "The best generalist for everyday questions, brainstorming, quick explanations, recipes, plans and lists; also image generation and editing, and voice chat.",
+    files: "Images, spreadsheets and CSVs (data analysis), PDFs and most other files.",
     quips: [
       "ChatGPT on the line. The everything desk.",
       "Putting you through to ChatGPT. It's heard it all.",
@@ -57,6 +59,7 @@ export const AIS = {
     prefill: null,
     routerNotes:
       "Meta's agent that DOES real-world tasks instead of just answering: booking restaurants or appointments, filling out forms, scheduling, shopping and ordering, negotiating or cancelling bills. US only, 18+. Pick it only when the user wants something acted on, not just explained.",
+    files: "Bills, forms, receipts and tickets it should act on.",
     quips: [
       "Muse on the line. It doesn't just talk, it does.",
       "Dispatching Muse. Consider it handled.",
@@ -73,6 +76,7 @@ export const AIS = {
     prefill: null,
     routerNotes:
       "Anything in the Google ecosystem: Gmail, Docs, Drive, Calendar, YouTube videos, Google Maps and travel planning, Android. Strong with long video or audio and other multimodal input.",
+    files: "Video, audio, images, PDFs and Google Docs or Sheets.",
     quips: [
       "Gemini on the line, with all of Google behind it.",
       "Patching into Gemini. It knows where your inbox lives.",
@@ -89,6 +93,7 @@ export const AIS = {
     prefill: (q) => `https://copilot.microsoft.com/?q=${q}`,
     routerNotes:
       "The Microsoft ecosystem: Excel formulas and spreadsheets, Word, PowerPoint, Outlook, Teams, OneDrive, and Windows troubleshooting. Bing-backed answers.",
+    files: "Word, Excel and PowerPoint files.",
     quips: [
       "Copilot on the line. Excel fears it.",
       "Putting you through to Copilot. Office hours are open.",
@@ -105,6 +110,7 @@ export const AIS = {
     prefill: (q) => `https://grok.com/?q=${q}`,
     routerNotes:
       "Real-time pulse of X/Twitter: what people are saying right now, trending topics, memes, viral posts, hot takes, and unfiltered humor or roasts.",
+    files: "Images.",
     quips: [
       "Grok on the line. Things may get spicy.",
       "Patching into the X firehose.",
@@ -121,6 +127,7 @@ export const AIS = {
     prefill: null,
     routerNotes:
       "Hard math and step-by-step quantitative reasoning: proofs, calculus, competition math, algorithm and LeetCode puzzles, homework-style problem solving. Free.",
+    files: "Text-heavy documents and code (it reads the text, not images).",
     quips: [
       "DeepSeek on the line. Show your work.",
       "Routing to DeepSeek. Pencils down, proofs up.",
@@ -137,6 +144,7 @@ export const AIS = {
     prefill: (q) => `https://www.perplexity.ai/search?q=${q}`,
     routerNotes:
       "Web research with cited sources: current news, fact-checking, looking things up, comparing products or prices, \"what's the latest on X\".",
+    files: "PDFs and images to research around.",
     quips: [
       "Perplexity on the line, sources attached.",
       "Routing to Perplexity. Citations incoming.",

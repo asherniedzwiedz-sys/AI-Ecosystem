@@ -5,6 +5,7 @@ import { randomSurprise } from "./surprises.js";
 import { DEFAULT_THEME, THEMES, THEME_KEY, getTheme } from "./themes.js";
 import { USAGE_KEY, emptyUsage, layoutBoard, parseUsage } from "./usage.js";
 import { SETUP_KEY, createSetup } from "./setup.js";
+import { formatSize, isTextKind, outgoingText, readAttachment, releaseAttachment, routerMeta } from "./attachment.js";
 
 const API_URL = "/api/route";
 const API_TIMEOUT_MS = 10_000;
@@ -26,7 +27,11 @@ const KEYS = {
 
 const $ = (id) => document.getElementById(id);
 const els = {
+  console: $("console"),
   prompt: $("prompt"),
+  attachBtn: $("attach-btn"),
+  fileInput: $("file-input"),
+  attachment: $("attachment"),
   routeBtn: $("route-btn"),
   surpriseBtn: $("surprise-btn"),
   sendAllBtn: $("send-all-btn"),
@@ -60,6 +65,8 @@ let usage = emptyUsage();
 let themeId = DEFAULT_THEME;
 let relayoutTimer;
 let setup;
+let attachment = null; // see attachment.js
+let attachToken = 0; // ignores a slow read if another file was attached meanwhile
 
 // localStorage can throw (private mode, blocked storage): treat it as optional.
 const store = {
@@ -159,7 +166,7 @@ function recordSends(ids, relayoutDelay = RELAYOUT_DELAY_MS) {
 // Tiles are real links (never popup-blocked, work in the installed app),
 // so their hrefs track the prompt as you type.
 function refreshLinks() {
-  const prompt = els.prompt.value;
+  const prompt = outgoingText(els.prompt.value, attachment);
   for (const id of ORDER) {
     const { url, prefilled } = sendTarget(id, prompt);
     tiles[id].href = url;
@@ -172,7 +179,7 @@ function refreshLinks() {
 }
 
 function setSendLink(link, id, label) {
-  link.href = sendTarget(id, els.prompt.value).url;
+  link.href = sendTarget(id, outgoingText(els.prompt.value, attachment)).url;
   link.dataset.id = id;
   link.style.setProperty("--c", AIS[id].color);
   link.replaceChildren(el("span", "dot"), el("span", "", label), el("span", "", "↗"));
@@ -239,19 +246,48 @@ function legacyCopy(text) {
   area.remove();
 }
 
+const canCopyImages = typeof ClipboardItem !== "undefined" && Boolean(navigator.clipboard?.write);
+
+function copyImage(att) {
+  return navigator.clipboard
+    .write([new ClipboardItem({ "image/png": att.png })])
+    .then(() => true, () => false);
+}
+
+// The attached image when it can go on the clipboard, else null.
+function copyableImage() {
+  return attachment?.png && canCopyImages ? attachment : null;
+}
+
+// What to tell people about a file that can't ride along on the link.
+function fileFollowUp(where) {
+  if (!attachment || attachment.inlineText) return "";
+  if (copyableImage()) return " Then tap Copy image to add your picture.";
+  return ` Attach ${attachment.name} ${where} too.`;
+}
+
 // Runs inside the link's click, so the clipboard write counts as a user gesture.
 // The link itself opens the AI; we don't preventDefault.
 function onSend(id) {
-  const prompt = els.prompt.value.trim();
+  const prompt = outgoingText(els.prompt.value, attachment);
   const name = AIS[id].name;
   recordSends([id]);
+  const { prefilled } = sendTarget(id, prompt);
+  const image = copyableImage();
+
+  // The link carries the prompt, so the clipboard is free for the picture.
+  if (image && (prefilled || !prompt)) {
+    copyImage(image);
+    toast(`Opening ${name}${prompt ? " with your prompt" : ""}. Image copied: paste it in.`);
+    return;
+  }
   if (!prompt) {
-    toast(`Opening ${name}.`);
+    toast(`Opening ${name}.${fileFollowUp("there")}`);
     return;
   }
   copyText(prompt);
-  const { prefilled } = sendTarget(id, prompt);
-  toast(prefilled ? `Opening ${name} with your prompt. Also copied, just in case.` : `Copied. Paste it into ${name}.`);
+  const opening = prefilled ? `Opening ${name} with your prompt. Also copied, just in case.` : `Copied. Paste it into ${name}.`;
+  toast(opening + fileFollowUp("there"));
 }
 
 // Opens every line at once. Must stay synchronous: browsers only allow
@@ -261,13 +297,16 @@ function sendAll() {
   unlockAudio();
   els.popupHint.hidden = true;
 
-  if (!els.prompt.value.trim()) {
+  // An attached file is something to send on its own, so only invent a prompt without one.
+  if (!els.prompt.value.trim() && !attachment) {
     lastSurprise = randomSurprise(lastSurprise);
     els.prompt.value = lastSurprise;
     refreshLinks();
   }
-  const prompt = els.prompt.value.trim();
-  copyText(prompt);
+  const prompt = outgoingText(els.prompt.value, attachment);
+  const image = copyableImage();
+  if (prompt) copyText(prompt);
+  else if (image) copyImage(image);
 
   let blocked = 0;
   for (const id of ORDER) {
@@ -283,12 +322,14 @@ function sendAll() {
   flashAll();
   ding();
 
+  const copied = prompt ? " Prompt copied." : image ? " Image copied." : "";
+  const followUp = prompt || !image ? fileFollowUp("in each tab") : "";
   if (blocked) {
     els.popupHint.textContent = `Your browser blocked ${blocked} of ${ORDER.length} tabs. Allow pop-ups for this site, then try again.`;
     els.popupHint.hidden = false;
-    toast(`Opened ${ORDER.length - blocked} of ${ORDER.length}. Prompt copied.`);
+    toast(`Opened ${ORDER.length - blocked} of ${ORDER.length}.${copied}${followUp}`);
   } else {
-    toast(`Sent to all ${ORDER.length} lines. Prompt copied.`);
+    toast(`Sent to all ${ORDER.length} lines.${copied}${followUp}`);
   }
 }
 
@@ -300,17 +341,159 @@ function toast(message) {
   toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2800);
 }
 
+/* ---------- attachments ---------- */
+
+const ICONS = {
+  file: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg>',
+  media: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m10 9.5 5 2.5-5 2.5z" /></svg>',
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>',
+};
+
+async function attachFile(file) {
+  if (!file) return;
+  const token = ++attachToken;
+  let att;
+  try {
+    att = await readAttachment(file);
+  } catch {
+    toast(`Couldn't read ${file.name || "that file"}.`);
+    return;
+  }
+  if (token !== attachToken) {
+    releaseAttachment(att);
+    return;
+  }
+  releaseAttachment(attachment);
+  attachment = att;
+  renderAttachment();
+  refreshLinks();
+  els.popupHint.hidden = true;
+}
+
+function removeAttachment() {
+  attachToken += 1;
+  releaseAttachment(attachment);
+  attachment = null;
+  renderAttachment();
+  refreshLinks();
+  els.prompt.focus();
+}
+
+function attachmentNote(att) {
+  if (att.inlineText) return "Its text goes along with your prompt.";
+  if (isTextKind(att.kind)) return "Too long to send by link. Attach it on the AI's site.";
+  if (att.png && canCopyImages) return "When you send, it's copied so you can paste it in.";
+  return "Links can't carry files, so attach it on the AI's site after you send.";
+}
+
+function renderAttachment() {
+  const att = attachment;
+  els.attachment.hidden = !att;
+  if (!att) {
+    els.attachment.replaceChildren();
+    return;
+  }
+  let thumb;
+  if (att.preview) {
+    thumb = el("img", "att-thumb");
+    thumb.src = att.preview;
+    thumb.alt = "";
+  } else {
+    thumb = el("span", "att-icon");
+    thumb.innerHTML = att.kind === "audio" || att.kind === "video" ? ICONS.media : ICONS.file;
+  }
+
+  const actions = [];
+  if (att.png && canCopyImages) {
+    const copy = el("button", "btn btn-ghost", "Copy image");
+    copy.type = "button";
+    copy.addEventListener("click", async () => {
+      toast((await copyImage(att)) ? "Image copied. Paste it into the AI." : "Couldn't copy the image here. Attach it on the AI's site.");
+    });
+    actions.push(copy);
+  }
+  if (navigator.canShare?.({ files: [att.file] })) {
+    // On phones this hands the file (and prompt) straight to the AI's app.
+    const share = el("button", "btn btn-ghost", "Share");
+    share.type = "button";
+    share.addEventListener("click", () => {
+      navigator.share({ files: [att.file], text: els.prompt.value.trim() || undefined }).catch((err) => {
+        if (err.name !== "AbortError") toast("Sharing isn't available here.");
+      });
+    });
+    actions.push(share);
+  }
+  const remove = el("button", "icon-btn att-remove");
+  remove.type = "button";
+  remove.setAttribute("aria-label", `Remove ${att.name}`);
+  remove.innerHTML = ICONS.close;
+  remove.addEventListener("click", removeAttachment);
+  actions.push(remove);
+
+  els.attachment.replaceChildren(
+    thumb,
+    el("div", "att-text", [
+      el("div", "att-name", [el("span", "att-file", att.name), el("span", "att-size", formatSize(att.size))]),
+      el("div", "att-note", attachmentNote(att)),
+    ]),
+    el("div", "att-actions", actions),
+  );
+}
+
+const draggingFiles = (e) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+function wireAttachments() {
+  els.attachBtn.addEventListener("click", () => els.fileInput.click());
+  els.fileInput.addEventListener("change", () => {
+    attachFile(els.fileInput.files[0]);
+    els.fileInput.value = ""; // so picking the same file again still fires
+  });
+
+  // Drop a file anywhere on the page (and never let the browser navigate to it).
+  let depth = 0;
+  window.addEventListener("dragenter", (e) => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    depth += 1;
+    els.console.classList.add("dropping");
+  });
+  window.addEventListener("dragover", (e) => {
+    if (draggingFiles(e)) e.preventDefault();
+  });
+  window.addEventListener("dragleave", (e) => {
+    if (!draggingFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) els.console.classList.remove("dropping");
+  });
+  window.addEventListener("drop", (e) => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    els.console.classList.remove("dropping");
+    attachFile(e.dataTransfer.files[0]);
+  });
+
+  // Pasting a screenshot attaches it. Pasting text (even with a picture of it,
+  // like copies from Word) stays a normal text paste.
+  els.prompt.addEventListener("paste", (e) => {
+    const file = e.clipboardData?.files?.[0];
+    if (!file || e.clipboardData.getData("text/plain")) return;
+    e.preventDefault();
+    attachFile(file);
+  });
+}
+
 /* ---------- routing ---------- */
 
-async function fetchRoute(prompt) {
-  if (!navigator.onLine) return { ...rulesPick(prompt), source: "rules", note: "offline" };
+async function fetchRoute(prompt, file) {
+  if (!navigator.onLine) return { ...rulesPick(prompt, file), source: "rules", note: "offline" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, attachment: file }),
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`router answered ${res.status}`);
@@ -321,7 +504,7 @@ async function fetchRoute(prompt) {
     return { ...data, source: "llm" };
   } catch (err) {
     console.info(`Using offline rules: ${err.message}`);
-    return { ...rulesPick(prompt), source: "rules", note: "router unreachable" };
+    return { ...rulesPick(prompt, file), source: "rules", note: "router unreachable" };
   } finally {
     clearTimeout(timer);
   }
@@ -409,8 +592,8 @@ function setBusy(on) {
 async function route() {
   const prompt = els.prompt.value.trim();
   if (busy) return;
-  if (!prompt) {
-    els.quip.textContent = "Operator here. I'll need a prompt first.";
+  if (!prompt && !attachment) {
+    els.quip.textContent = "Operator here. I'll need a prompt or a file first.";
     els.prompt.focus();
     return;
   }
@@ -426,7 +609,7 @@ async function route() {
   els.actions.hidden = true;
   els.quip.textContent = "Ringing the lines…";
 
-  const result = await spin(fetchRoute(prompt));
+  const result = await spin(fetchRoute(prompt, routerMeta(attachment)));
 
   current = result;
   land(result.pick, result.runnerUp);
@@ -569,6 +752,7 @@ function initSetup() {
 }
 
 function wireControls() {
+  wireAttachments();
   els.prompt.addEventListener("input", () => {
     refreshLinks();
     els.popupHint.hidden = true;

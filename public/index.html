@@ -65,8 +65,15 @@
       </header>
 
       <main>
-        <section class="console" aria-label="Your prompt">
-          <label class="mono-label" for="prompt">Incoming call</label>
+        <section class="console" id="console" aria-label="Your prompt">
+          <div class="console-head">
+            <label class="mono-label" for="prompt">Incoming call</label>
+            <button class="attach-btn" id="attach-btn" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 11.5-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg>
+              <span>Attach file</span>
+            </button>
+            <input type="file" id="file-input" hidden />
+          </div>
           <textarea
             id="prompt"
             rows="3"
@@ -74,6 +81,7 @@
             placeholder="What do you need? e.g. “book a table for 4 Friday at 7”"
             autocomplete="off"
           ></textarea>
+          <div class="attachment" id="attachment" hidden></div>
           <div class="console-actions">
             <button class="btn btn-primary" id="route-btn" type="button">
               <span>Route call</span>
@@ -113,6 +121,10 @@
         <p class="footnote">
           Tap any line to send your prompt there. It's copied to your clipboard too; lines marked
           <span class="mono-chip">paste</span> open the site and you paste it in.
+        </p>
+        <p class="footnote">
+          Attached files stay on your device. The router only sees a file's name and type, plus the start of a
+          text file.
         </p>
       </main>
     </div>

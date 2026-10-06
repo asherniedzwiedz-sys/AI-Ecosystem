@@ -52,3 +52,13 @@ test("GET is a health check that never leaks the key", async () => {
     delete process.env.ANTHROPIC_API_KEY;
   }
 });
+
+test("POST accepts a file with no prompt, but not nothing at all", async () => {
+  process.env.ANTHROPIC_API_KEY = "test-key";
+  try {
+    assert.equal((await POST(post({ prompt: "", attachment: null }, "203.0.113.9"))).status, 400);
+    assert.equal((await POST(post({}, "203.0.113.9"))).status, 400);
+  } finally {
+    delete process.env.ANTHROPIC_API_KEY;
+  }
+});

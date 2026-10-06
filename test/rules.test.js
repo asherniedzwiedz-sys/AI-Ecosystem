@@ -53,3 +53,22 @@ test("sendTarget prefills where supported and falls back to paste", () => {
   assert.deepEqual(sendTarget("chatgpt", "   "), { url: AIS.chatgpt.home, prefilled: false });
   assert.equal(sendTarget("perplexity", "x".repeat(20_000)).prefilled, false);
 });
+
+test("rulesPick: an attached file steers the pick", () => {
+  assert.equal(rulesPick("", { kind: "pdf" }).pick, "claude");
+  assert.equal(rulesPick("summarize this", { kind: "video" }).pick, "gemini");
+  assert.equal(rulesPick("", { kind: "sheet" }).pick, "copilot");
+  assert.equal(rulesPick("", { kind: "code" }).pick, "claude");
+  const image = rulesPick("what is this?", { kind: "image" });
+  assert.deepEqual([image.pick, image.runnerUp], ["chatgpt", "gemini"]);
+});
+
+test("rulesPick: strong keywords still beat a file nudge", () => {
+  // Muse's booking keywords (3 + 2) outweigh the PDF's pull toward Claude (3).
+  assert.equal(rulesPick("book a table and order the wine from this menu", { kind: "pdf" }).pick, "muse");
+});
+
+test("rulesPick: reasons mention the file", () => {
+  assert.equal(rulesPick("", { kind: "pdf" }).reason, "PDF attached: Claude handles those well.");
+  assert.match(rulesPick("debug this", { kind: "code" }).reason, /"debug" plus the code file points to Claude/);
+});

@@ -285,17 +285,157 @@ svg {
 /* ---------- console (prompt) ---------- */
 
 .console {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 14px 14px 12px;
   box-shadow: var(--tile-shadow);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 6px 2px;
 }
 
 .console .mono-label {
   display: block;
   color: var(--muted);
-  margin: 2px 2px 8px;
+}
+
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.attach-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.attach-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* A file being dragged over the page lights up the console. */
+.console.dropping {
+  border-color: var(--amber);
+  box-shadow: var(--tile-shadow), 0 0 0 3px color-mix(in srgb, var(--amber) 30%, transparent);
+}
+
+.console.dropping::after {
+  content: "Drop to attach";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  font: 700 22px/1 "Bricolage Grotesque", system-ui, sans-serif;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.attachment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--tile);
+}
+
+.att-thumb,
+.att-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+}
+
+.att-thumb {
+  object-fit: cover;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.att-icon {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink-2);
+}
+
+.att-text {
+  display: grid;
+  flex: 1 1 180px;
+  gap: 3px;
+  min-width: 0;
+}
+
+.att-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.att-file {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.att-size {
+  flex: none;
+  font: 400 12px/1 "IBM Plex Mono", ui-monospace, monospace;
+  color: var(--muted);
+}
+
+.att-note {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
+.att-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.att-actions .btn {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.att-remove {
+  width: 34px;
+  height: 34px;
 }
 
 textarea {
@@ -317,8 +457,14 @@ textarea::placeholder {
   opacity: 0.85;
 }
 
+/* The console's border is the prompt's focus ring (a square outline inside
+   the rounded box looks broken), so the textarea skips its own. */
 .console:focus-within {
-  border-color: var(--line-strong);
+  border-color: color-mix(in srgb, var(--amber) 70%, var(--line));
+}
+
+textarea:focus-visible {
+  outline: none;
 }
 
 .console-actions {

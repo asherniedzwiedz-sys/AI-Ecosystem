@@ -1,6 +1,7 @@
 // Offline router: keyword rules. Used when the API router is unreachable
 // (offline, not deployed, timed out). Same output shape as the API.
 import { AIS, ORDER, randomQuip } from "./ais.js";
+import { KIND_LABELS } from "./attachment.js";
 
 // [pattern, weight]. Weight 3 = near-certain signal, 1 = weak hint.
 const RULES = {
@@ -56,14 +57,31 @@ const RULES = {
   ],
 };
 
+// An attached file nudges toward the AIs that handle that kind of file.
+const FILE_BOOSTS = {
+  code: { claude: 3, deepseek: 1 },
+  text: { claude: 2, chatgpt: 1 },
+  data: { chatgpt: 3, copilot: 2 },
+  sheet: { copilot: 3, chatgpt: 2 },
+  slides: { copilot: 3, gemini: 1 },
+  doc: { claude: 2, copilot: 2 },
+  pdf: { claude: 3, chatgpt: 1, gemini: 1 },
+  image: { chatgpt: 2, gemini: 2 },
+  audio: { gemini: 3, chatgpt: 1 },
+  video: { gemini: 4 },
+  other: { chatgpt: 1 },
+};
+
 // Nothing matched: the generalist takes the call.
 const DEFAULT_PICK = "chatgpt";
 const DEFAULT_RUNNER_UP = "claude";
 
-export function rulesPick(prompt) {
+// attachment: optional { kind } (see attachment.js routerMeta).
+export function rulesPick(prompt, attachment = null) {
   const text = prompt.toLowerCase();
+  const boosts = FILE_BOOSTS[attachment?.kind] ?? {};
   const scores = ORDER.map((id) => {
-    let score = 0;
+    let score = boosts[id] ?? 0;
     const hits = [];
     for (const [pattern, weight] of RULES[id]) {
       const match = text.match(pattern);
@@ -89,11 +107,15 @@ export function rulesPick(prompt) {
 
   const [best, second] = ranked;
   const runnerUp = second ? second.id : best.id === DEFAULT_PICK ? DEFAULT_RUNNER_UP : DEFAULT_PICK;
-  const words = [...new Set(best.hits)].slice(0, 3).map((w) => `"${w}"`).join(", ");
-  return {
-    pick: best.id,
-    runnerUp,
-    quip: randomQuip(best.id),
-    reason: `Keyword match: ${words} points to ${AIS[best.id].name}.`,
-  };
+  const name = AIS[best.id].name;
+  const label = KIND_LABELS[attachment?.kind];
+  let reason;
+  if (!best.hits.length) {
+    reason = `${label[0].toUpperCase()}${label.slice(1)} attached: ${name} handles those well.`;
+  } else {
+    const words = [...new Set(best.hits)].slice(0, 3).map((w) => `"${w}"`).join(", ");
+    const plusFile = boosts[best.id] ? ` plus the ${label}` : "";
+    reason = `Keyword match: ${words}${plusFile} points to ${name}.`;
+  }
+  return { pick: best.id, runnerUp, quip: randomQuip(best.id), reason };
 }
