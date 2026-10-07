@@ -2,7 +2,7 @@
 // Network-first, so a deploy shows up on the next load; the cache is the offline fallback.
 // Bump VERSION when the shell file list changes. Mascot images aren't listed:
 // they're cached the first time they load, so a missing one can't break install.
-const VERSION = "v8";
+const VERSION = "v9";
 const CACHE = `switchboard-${VERSION}`;
 const SHELL = [
   "/",
@@ -14,9 +14,12 @@ const SHELL = [
   "/js/surprises.js",
   "/js/themes.js",
   "/js/usage.js",
+  "/js/usage-import.js",
+  "/js/store.js",
   "/js/setup.js",
   "/js/attachment.js",
   "/js/world.js",
+  "/js/world-nav.js",
   "/manifest.webmanifest",
   "/icons/icon.svg",
   "/icons/icon-192.png",

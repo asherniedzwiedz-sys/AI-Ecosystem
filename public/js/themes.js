@@ -5,10 +5,11 @@
 // - include exactly one `.badge` element (the app writes "Pick"/"Alt" into it);
 // - style state from classes the app puts on the tile: `lit` (lamp race),
 //   `picked`, `alt`, `hop` (landing celebration), `flash` (Send to all),
-//   plus `data-size` = sm | md | lg for the usage tier;
+//   plus `data-size` = sm | md | lg for the usage tier and `data-rank`
+//   (usage rank, 1 = most used, 0 = not used yet);
 // - `--c` on the tile is the AI's color (`colors` overrides it per theme).
-// Optional: mount(ctx) -> Promise<{ unmount, afterLanding?, sendsAfterLanding? }>
-// for themes that draw outside the tiles (the 3D world).
+// Optional: mount(ctx) -> Promise<{ unmount, afterLanding?, sendsAfterLanding?, sent? }>
+// for themes that draw outside the tiles (the 3D world); sent(ids) runs on every send.
 import { ORDER, mascotSrc } from "./ais.js";
 
 export const THEME_KEY = "switchboard-theme";

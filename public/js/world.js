@@ -1,15 +1,21 @@
 // World theme: a tiny isometric diorama in Three.js, loaded only when picked.
-// Eight blob creatures run a vintage switchboard from their desks.
+// Eight blob creatures share a vintage switchboard, each with its own desk.
+// They wander the platform; when you send to one, it hurries to its desk, hops
+// over into its seat and types away for a few seconds, then wanders off again.
 //
 // This module only draws. It reads the same state the CSS themes style: classes
-// on each AI's tile link (lit, picked, hop, flash, hover) and its data-size usage
-// tier. Routing, sending and usage stay in app.js. Tapping a creature clicks its
-// tile link, so sending works exactly like the other themes.
+// on each AI's tile link (lit, picked, hop, flash, hover) and its data-rank
+// (usage rank, 0 = unused), plus a sent(ids) call from app.js on every send.
+// Routing, sending and usage stay in app.js. Tapping a creature clicks its tile
+// link, so sending works exactly like the other themes.
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { createNav } from "./world-nav.js";
 
-const SIZE_SCALE = { sm: 1, md: 1.25, lg: 1.55 };
+// Usage rank sets size: rank 1 is the biggest, each rank down a bit smaller,
+// and AIs you haven't used yet stay at 1.
+const scaleForRank = (rank) => (rank > 0 ? Math.max(1.05, 1.6 - (rank - 1) * 0.075) : 1);
 const FOV = 30;
 const HOME_AZ = 0.72; // charming 3/4 angle (radians around the y axis)
 const HOME_EL = 0.6; // ~34 degrees above the floor
@@ -23,19 +29,29 @@ const ARC = 3.8; // stations span this arc on the far side, so every creature fa
 const SWOOP_MS = 1100;
 const HOP_MS = 750;
 const HOME_MS = 900;
-const RETURN_AFTER_MS = 2600;
+const BODY_R = 0.5; // a creature's footprint radius at scale 1
+const PLAN_R = 0.55; // paths are planned this wide at most: the biggest squeeze past the desks
+const COMFORT = 0.6; // and prefer this much extra room where there is some
+const WALK_SPEED = 0.85; // relaxed roaming, units per second
+const RUSH_SPEED = 2.3; // heading to work
+const LEAP_MS = 650; // hopping over the desk, in or out
+const LEAP_H = 0.95;
+const WORK_MS = 4000;
+const HIGHLIGHT_MS = 1600; // reduced motion: how long a send lights up the station
+const FOCUS_HOLD_MS = 1600; // the camera lingers until the pick has typed this long
+const FOCUS_MAX_MS = 9000;
 const MIN_WORLD_PX = 300; // phones: the world keeps at least this much height below the cards
 
 const MOODS = {
   day: {
     sky: 0xffffff, ground: 0xcbbfae, hemi: 2.2, sun: 0xffffff, sunI: 1.4,
     floor: 0xf2ede5, rim: 0xe2dacd, ring: 0xe7dfd3, desk: 0xfbfaf7, panel: 0x3a3f4b,
-    shadow: 0.26, glow: 1, spot: 0.18,
+    shadow: 0.26, glow: 1, spot: 0.18, screen: 0x222a38,
   },
   dusk: {
     sky: 0xaaa6e6, ground: 0x41365a, hemi: 2.0, sun: 0xffbe90, sunI: 1.2,
     floor: 0x3d3857, rim: 0x2f2b45, ring: 0x4a4470, desk: 0xd9d5e8, panel: 0x24283a,
-    shadow: 0.42, glow: 1.6, spot: 0.26,
+    shadow: 0.42, glow: 1.6, spot: 0.26, screen: 0x171b2b,
   },
 };
 
@@ -43,6 +59,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a)); // to [-pi, pi]
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const smooth = (a, b, t) => clamp((t - a) / (b - a), 0, 1);
+const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const at = (a, r, y = 0) => new THREE.Vector3(r * Math.sin(a), y, r * Math.cos(a));
 const clampAz = (az) => HOME_AZ + clamp(wrap(az - HOME_AZ), -ORBIT_AZ, ORBIT_AZ);
@@ -115,7 +132,7 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     const yaw = Math.atan2(lookAt.x - pos.x, lookAt.z - pos.z);
     const ahead = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
     const desk = pos.clone().addScaledVector(ahead, 0.95);
-    return { pos, yaw, desk, toward: Math.atan2(desk.x, desk.z) };
+    return { pos, yaw, ahead, desk, toward: Math.atan2(desk.x, desk.z) };
   });
 
   /* ---------- the switchboard console ---------- */
@@ -184,6 +201,8 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
   const desks = new THREE.InstancedMesh(deskGeo, deskMat, n);
   const panels = new THREE.InstancedMesh(panelGeo, panelMat, n);
   const deskLamps = new THREE.InstancedMesh(deskLampGeo, basic(0xffffff), n);
+  // Each control board has a screen that glows while its creature works.
+  const screens = new THREE.InstancedMesh(new RoundedBoxGeometry(0.7, 0.02, 0.2, 1, 0.01), basic(0xffffff), n);
   const yAxis = new THREE.Vector3(0, 1, 0);
   ids.forEach((id, i) => {
     const { desk, yaw, toward } = stations[i];
@@ -196,6 +215,10 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     tmp.rotation.set(-0.35, yaw, 0, "YXZ");
     tmp.updateMatrix();
     panels.setMatrixAt(i, tmp.matrix);
+    tmp.translateY(0.04);
+    tmp.updateMatrix();
+    screens.setMatrixAt(i, tmp.matrix);
+    screens.setColorAt(i, new THREE.Color(0x000000));
     tmp.position.copy(desk).add(new THREE.Vector3(0.28, 0, -0.14).applyAxisAngle(yAxis, yaw)).setY(0.6);
     tmp.updateMatrix();
     deskLamps.setMatrixAt(i, tmp.matrix);
@@ -214,14 +237,14 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
   });
   desks.userData.ids = ids;
   panels.userData.ids = ids;
-  scene.add(desks, panels, deskLamps);
+  scene.add(desks, panels, screens, deskLamps);
   pickables.push(desks, panels);
 
   /* ---------- plants, for charm ---------- */
 
   const potMat = lambert(0xcdbfae);
   const leafMat = lambert(0x6daa6b, { flatShading: true });
-  const plantSpots = [at(HOME_AZ - 0.6, 5.0), at(HOME_AZ + 0.68, 4.8)];
+  const plantSpots = [at(HOME_AZ - 0.6, 5.35), at(HOME_AZ + 0.68, 5.35)]; // out by the rim, clear of the walkway
   const leafGeo = new THREE.IcosahedronGeometry(0.28, 0);
   for (const spot of plantSpots) {
     const plant = new THREE.Group();
@@ -237,6 +260,18 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     plant.position.copy(spot);
     scene.add(plant);
   }
+
+  // Where creatures can walk: the platform minus the console, desks and plants.
+  const nav = createNav({
+    radius: PLATFORM_R - 0.2,
+    obstacles: [
+      { type: "circle", x: 0, z: 0, r: 1.45 },
+      ...stations.map(({ desk, yaw }) => ({ type: "box", x: desk.x, z: desk.z, hx: 0.75, hz: 0.31, yaw })),
+      ...plantSpots.map((p) => ({ type: "circle", x: p.x, z: p.z, r: 0.26 })),
+    ],
+  });
+  const plaza = at(HOME_AZ, 3.2); // the open floor in front of the console
+  const walkable = nav.region(plaza, PLAN_R);
 
   /* ---------- creatures ---------- */
 
@@ -350,23 +385,295 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
       body.add(mesh);
       pickables.push(mesh);
     }
-    return { root, body };
+    const skins = [...materials.values()].filter((m) => m.isMeshLambertMaterial);
+    return { root, body, skins };
   }
 
   const creatures = {};
   ids.forEach((id, i) => {
-    const a = angleOf[i];
-    const { root, body } = buildCreature(id, palette[id]);
+    const { root, body, skins } = buildCreature(id, palette[id]);
     root.position.copy(stations[i].pos);
     root.rotation.y = stations[i].yaw;
     scene.add(root);
     creatures[id] = {
-      id, a, root, body, bulb: bulbs[i],
+      id, i, root, body, skins, bulb: bulbs[i], station: stations[i],
       scale: 1, target: 1, phase: i * 1.37,
       hopAt: null, hopY: 0, glance: null,
       lit: 0, litTarget: 0, picked: false, hopFlag: false, flashFlag: false, hovered: false,
+      // Behavior: seat -> leap out -> pause/walk (roaming) ... -> toDesk -> leap in -> happy -> work -> leap out
+      state: "seat", until: Infinity, yaw: stations[i].yaw, path: null, speed: 0, leap: null,
+      wantDesk: false, workStart: 0, stepPhase: 0, moving: false, heading: 0, progress: null, stuck: 0, group: null,
+      highlightUntil: 0, glow: 0, screen: 0, screenShown: -1,
     };
   });
+
+  /* ---------- behavior: roaming, heading to the desk, working ---------- */
+
+  const radiusOf = (c) => BODY_R * c.scale;
+  const planRadius = (c) => Math.min(BODY_R * Math.max(c.scale, c.target), PLAN_R);
+  const atDesk = (c) =>
+    c.state === "toDesk" || c.state === "happy" || c.state === "work" || (c.state === "leap" && c.leap.dir === "in");
+
+  // The open floor in front of a creature's desk, where it hops over from.
+  function approachOf(c) {
+    const { desk, ahead } = c.station;
+    const d = 0.31 + planRadius(c) + 0.15;
+    return { x: desk.x + ahead.x * d, z: desk.z + ahead.z * d };
+  }
+
+  function setPath(c, legs, speed, state) {
+    c.path = legs;
+    c.speed = speed;
+    c.state = state;
+    c.progress = null;
+  }
+
+  // Somewhere else to wander: open floor away from the console and the desks'
+  // seats, and of a few candidates the one with the most room from the others
+  // (where they are or are heading), so they spread over the platform.
+  function startRoam(c) {
+    const r = planRadius(c);
+    const others = ids.map((id) => creatures[id]).filter((o) => o !== c);
+    const here = c.root.position;
+    const accept = (p) =>
+      walkable(p.x, p.z) &&
+      Math.hypot(p.x, p.z) > 2.2 &&
+      Math.hypot(p.x - here.x, p.z - here.z) > 1.2 &&
+      stations.every((st) => Math.hypot(p.x - st.pos.x, p.z - st.pos.z) > 1.3);
+    const space = (p) =>
+      Math.min(
+        ...others.map((o) => {
+          const end = o.path?.at(-1) ?? o.root.position;
+          return Math.hypot(p.x - end.x, p.z - end.z) - BODY_R * o.target;
+        }),
+      );
+    let target = null;
+    let best = -Infinity;
+    // Hemmed in after a few tries: head for the open floor out front.
+    if (c.stuck >= 3) target = plaza;
+    else {
+      for (let k = 0; k < 8; k += 1) {
+        const p = nav.randomPoint(r + 0.15, accept);
+        const score = p ? space(p) : -Infinity;
+        if (score > best) [target, best] = [p, score];
+      }
+    }
+    const legs = target && nav.path({ x: c.root.position.x, z: c.root.position.z }, target, r, COMFORT);
+    if (!legs?.length) {
+      c.stuck += 1;
+      return false;
+    }
+    c.stuck = 0;
+    setPath(c, legs, WALK_SPEED, "walk");
+    return true;
+  }
+
+  function pause(c, now, lo = 1000, hi = 3500) {
+    c.state = "pause";
+    c.path = null;
+    c.until = now + rand(lo, hi);
+  }
+
+  function startLeap(c, dir, now) {
+    const p = c.root.position;
+    const to = dir === "in" ? { x: c.station.pos.x, z: c.station.pos.z } : approachOf(c);
+    c.state = "leap";
+    c.path = null;
+    c.leap = { dir, from: { x: p.x, z: p.z }, to, start: now, fromYaw: c.yaw, toYaw: c.station.yaw };
+  }
+
+  function headToDesk(c, now) {
+    const p = c.root.position;
+    const goal = approachOf(c);
+    if (Math.hypot(goal.x - p.x, goal.z - p.z) < 0.35) {
+      startLeap(c, "in", now);
+      return;
+    }
+    const legs = nav.path({ x: p.x, z: p.z }, goal, planRadius(c), COMFORT);
+    setPath(c, legs?.length ? legs : [goal], RUSH_SPEED, "toDesk");
+  }
+
+  function startWork(c, now) {
+    c.state = "work";
+    c.workStart = now;
+    c.until = now + WORK_MS;
+    if (c.group) {
+      c.until = Infinity; // waits for the rest of the crew
+      if (c.group.members.every((m) => m.state === "work")) release(c.group, now);
+    }
+  }
+
+  // Send to all: everyone works together, so the clock starts once the last
+  // one sits down (or after a while, in case someone's held up).
+  function release(group, now) {
+    for (const m of group.members) {
+      if (m.group !== group) continue;
+      m.group = null;
+      if (m.state === "work") m.until = now + WORK_MS + rand(0, 700); // not all in the same frame
+    }
+  }
+
+  // A send (or the router's pick): go work. Already working or on the way just
+  // restarts the work timer; no second trip.
+  function summon(c, now) {
+    c.stuck = 0;
+    switch (c.state) {
+      case "work":
+        if (!c.group) c.until = now + WORK_MS;
+        break;
+      case "happy":
+      case "toDesk":
+        break;
+      case "leap":
+        if (c.leap.dir === "out") c.wantDesk = true;
+        break;
+      case "seat":
+        c.state = "happy";
+        c.hopAt = now;
+        c.until = now + HOP_MS;
+        break;
+      default:
+        headToDesk(c, now);
+    }
+  }
+
+  // Reduced motion: nobody moves; a send lights the creature and its station.
+  let highlightTimer = 0;
+  function highlight(list, now) {
+    for (const id of list) creatures[id].highlightUntil = now + HIGHLIGHT_MS;
+    if (list.length === 1) spot.id = list[0];
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(invalidate, HIGHLIGHT_MS + 30);
+    invalidate();
+  }
+
+  function seatEveryone(now, stagger) {
+    ids.forEach((id) => {
+      const c = creatures[id];
+      Object.assign(c, { state: "seat", path: null, leap: null, wantDesk: false, moving: false, yaw: c.station.yaw, hopAt: null, group: null });
+      c.until = stagger ? now + rand(300, 4500) : Infinity;
+      c.root.position.copy(c.station.pos);
+    });
+  }
+
+  function followPath(c, dt, now) {
+    const p = c.root.position;
+    const wp = c.path[0];
+    const dx = wp.x - p.x;
+    const dz = wp.z - p.z;
+    const d = Math.hypot(dx, dz);
+    const stride = c.speed * dt;
+    c.moving = true;
+    c.heading = Math.atan2(dx, dz);
+    c.stepPhase += (Math.min(stride, d) / (0.34 * c.scale)) * Math.PI;
+    if (d <= stride) {
+      p.x = wp.x;
+      p.z = wp.z;
+      c.path.shift();
+      c.progress = null;
+      if (!c.path.length) arrive(c, now);
+      return;
+    }
+    p.x += (dx / d) * stride;
+    p.z += (dz / d) * stride;
+    // Pushed around by the others and making no headway: try something else.
+    if (!c.progress || d < c.progress.best - 0.05) c.progress = { best: d, at: now };
+    else if (now - c.progress.at > 2200) stuckOnTheWay(c, now);
+  }
+
+  function arrive(c, now) {
+    if (c.state === "toDesk") startLeap(c, "in", now);
+    else pause(c, now);
+  }
+
+  function stuckOnTheWay(c, now) {
+    if (c.state !== "toDesk") {
+      pause(c, now, 300, 900);
+      return;
+    }
+    c.stuck += 1;
+    if (c.stuck >= 2) startLeap(c, "in", now); // squeeze in from where it is
+    else headToDesk(c, now);
+  }
+
+  function behave(c, now, dt) {
+    c.moving = false;
+    switch (c.state) {
+      case "seat":
+        if (now >= c.until) startLeap(c, "out", now);
+        break;
+      case "pause":
+        if (now >= c.until && !startRoam(c)) c.until = now + 700;
+        break;
+      case "walk":
+      case "toDesk":
+        followPath(c, dt, now);
+        break;
+      case "leap": {
+        const t = (now - c.leap.start) / LEAP_MS;
+        if (t < 1) break;
+        const { dir, to } = c.leap;
+        c.root.position.set(to.x, 0, to.z);
+        c.leap = null;
+        if (dir === "in") {
+          c.state = "happy";
+          c.yaw = c.station.yaw;
+          c.hopAt = now;
+          c.until = now + HOP_MS;
+        } else if (c.wantDesk) {
+          c.wantDesk = false;
+          startLeap(c, "in", now);
+        } else pause(c, now, 400, 1600);
+        break;
+      }
+      case "happy":
+        if (now >= c.until) startWork(c, now);
+        break;
+      case "work":
+        if (c.group && now > c.group.deadline) release(c.group, now);
+        if (now >= c.until) startLeap(c, "out", now);
+        break;
+    }
+  }
+
+  // Cheap personal space: walkers nudge apart, never into the furniture.
+  const loose = (c) => c.state === "walk" || c.state === "toDesk" || c.state === "pause";
+  function keepApart() {
+    for (let a = 0; a < n; a += 1) {
+      for (let b = a + 1; b < n; b += 1) {
+        const ca = creatures[ids[a]];
+        const cb = creatures[ids[b]];
+        const la = loose(ca);
+        const lb = loose(cb);
+        if (!la && !lb) continue;
+        const pa = ca.root.position;
+        const pb = cb.root.position;
+        const dx = pb.x - pa.x;
+        const dz = pb.z - pa.z;
+        const d = Math.hypot(dx, dz) || 1e-4;
+        const overlap = (radiusOf(ca) + radiusOf(cb)) * 0.95 - d;
+        if (overlap <= 0) continue;
+        const ka = la ? (lb ? 0.5 : 1) : 0;
+        const kb = lb ? (la ? 0.5 : 1) : 0;
+        pa.x -= (dx / d) * overlap * ka;
+        pa.z -= (dz / d) * overlap * ka;
+        pb.x += (dx / d) * overlap * kb;
+        pb.z += (dz / d) * overlap * kb;
+      }
+    }
+    for (const id of ids) {
+      const c = creatures[id];
+      if (!loose(c)) continue;
+      const p = c.root.position;
+      const room = Math.min(radiusOf(c) * 0.85, PLAN_R);
+      const cl = nav.clearance(p.x, p.z);
+      if (cl < room) {
+        const g = nav.gradient(p.x, p.z);
+        p.x += g.x * (room - cl);
+        p.z += g.z * (room - cl);
+      }
+    }
+  }
 
   /* ---------- blob shadows and the spotlight ---------- */
 
@@ -405,6 +712,16 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
 
   /* ---------- light and dark ---------- */
 
+  // Screens: dark when idle, the creature's color while it works.
+  const screenIdle = new THREE.Color();
+  const screenColor = new THREE.Color();
+  const screenGlow = ids.map((id) => {
+    const pal = palette[id];
+    const glow = new THREE.Color(pal.ui);
+    if (glow.getHSL({}).l < 0.35 && pal.accent) glow.set(pal.accent); // DeepSeek's navy wouldn't glow
+    return glow.lerp(new THREE.Color(0xffffff), 0.3);
+  });
+
   let mood = MOODS.day;
   function applyMood() {
     const forced = document.documentElement.dataset.theme;
@@ -418,6 +735,8 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     ringMat.color.set(mood.ring);
     deskMat.color.set(mood.desk);
     panelMat.color.set(mood.panel);
+    screenIdle.set(mood.screen);
+    for (const id of ids) creatures[id].screenShown = -1; // repaint the screens
     shadowMat.opacity = mood.shadow / 0.55;
     invalidate();
   }
@@ -491,14 +810,14 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     return { tx: 0, ty: 0.55, tz: 0, dist: fit.dist, az: orbit.az, el: orbit.el };
   }
 
-  const v3 = new THREE.Vector3();
+  // The pick's workstation (where it's headed), not wherever it's roaming.
   function focusView(id) {
     const c = creatures[id];
-    v3.copy(c.root.position);
+    const { pos, ahead, yaw } = c.station;
     return {
-      tx: v3.x, ty: 0.75 * c.target, tz: v3.z,
+      tx: pos.x + ahead.x * 0.45, ty: 0.75 * c.target, tz: pos.z + ahead.z * 0.45,
       dist: clamp(fit.dist * 0.6, 8, 22),
-      az: HOME_AZ + clamp(wrap(c.root.rotation.y - HOME_AZ), -0.85, 0.85),
+      az: HOME_AZ + clamp(wrap(yaw - HOME_AZ), -0.85, 0.85),
       el: 0.66,
     };
   }
@@ -543,15 +862,10 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     makeRoom();
     mode = "focus";
     focusId = id;
-    landing = goTo(SWOOP_MS)
-      .then(() => {
-        if (focusId !== id) return undefined;
-        startHop(id);
-        return wait(reduced.matches ? 0 : HOP_MS);
-      })
-      .then(() => {
-        if (focusId === id) returnTimer = setTimeout(() => focusId === id && goHome(), RETURN_AFTER_MS);
-      });
+    // The camera holds on the desk until the pick is typing (see step), or this.
+    landing = goTo(SWOOP_MS).then(() => {
+      if (focusId === id) returnTimer = setTimeout(() => focusId === id && goHome(), FOCUS_MAX_MS);
+    });
     return landing;
   }
 
@@ -570,35 +884,32 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     const cl = tiles[id].classList;
     c.litTarget = cl.contains("lit") || cl.contains("picked") || cl.contains("flash") ? 1 : 0;
     c.hovered = cl.contains("hover");
-    c.target = SIZE_SCALE[tiles[id].dataset.size] ?? 1;
+    c.target = scaleForRank(Number(tiles[id].dataset.rank) || 0);
 
     const picked = cl.contains("picked");
     if (picked !== c.picked) {
       c.picked = picked;
       if (picked) {
         spot.id = id;
-        spot.target = 1;
         makeRoom();
-        if (!reduced.matches && focusId !== id) startSwoop(id);
-      } else {
-        if (spot.id === id) spot.target = 0;
-        if (focusId === id) goHome();
-      }
+        if (reduced.matches) highlight([id], performance.now());
+        else {
+          if (focusId !== id) startSwoop(id);
+          summon(c, performance.now()); // off to its desk while the camera swoops there
+        }
+      } else if (focusId === id) goHome();
     }
+    // Only idle creatures celebrate in place; the pick hops when it reaches its desk.
     const hop = cl.contains("hop");
-    if (hop && !c.hopFlag && focusId !== id) startHop(id); // the swoop does its own hop
+    if (hop && !c.hopFlag && (c.state === "pause" || c.state === "seat")) startHop(id);
     c.hopFlag = hop;
     const flash = cl.contains("flash");
-    if (flash && !c.flashFlag) {
-      startHop(id, Math.random() * 120);
-      if (!reduced.matches) pulse = 1;
-    }
+    if (flash && !c.flashFlag && !reduced.matches) pulse = 1;
     c.flashFlag = flash;
 
     if (reduced.matches) {
       c.scale = c.target;
       c.lit = c.litTarget;
-      spot.v = spot.target;
     }
     invalidate();
   }
@@ -606,7 +917,7 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
   const observer = new MutationObserver((records) => {
     for (const id of new Set(records.map((r) => r.target.dataset.id))) if (creatures[id]) sync(id);
   });
-  for (const id of ids) observer.observe(tiles[id], { attributes: true, attributeFilter: ["class", "data-size"] });
+  for (const id of ids) observer.observe(tiles[id], { attributes: true, attributeFilter: ["class", "data-rank"] });
   const modeObserver = new MutationObserver(applyMood);
   modeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
@@ -648,13 +959,26 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     );
     camera.lookAt(view.tx, view.ty, view.tz);
 
-    // Occasionally someone looks up at you.
+    if (!still) {
+      for (const id of ids) behave(creatures[id], now, dt);
+      keepApart();
+    }
+    // The camera leaves the desk once the pick is busy typing.
+    if (mode === "focus" && focusId && !tween) {
+      const fc = creatures[focusId];
+      if (fc.state === "work" && now - fc.workStart > FOCUS_HOLD_MS) goHome();
+    }
+
+    // Now and then an idle creature looks up at you.
     if (!still && now > nextGlance) {
-      const idle = ids.filter((id) => !creatures[id].glance && creatures[id].hopAt === null && id !== focusId);
+      const idle = ids.filter((id) => {
+        const c = creatures[id];
+        return !c.glance && c.hopAt === null && (c.state === "pause" || c.state === "seat");
+      });
       const c = creatures[idle[Math.floor(Math.random() * idle.length)]];
       if (c) {
         const toCam = Math.atan2(camera.position.x - c.root.position.x, camera.position.z - c.root.position.z);
-        c.glance = { start: now, dur: 2200, yaw: clamp(wrap(toCam - c.root.rotation.y), -0.9, 0.9) };
+        c.glance = { start: now, dur: 2200, yaw: clamp(wrap(toCam - c.yaw), -0.9, 0.9) };
       }
       nextGlance = now + 2600 + Math.random() * 3400;
     }
@@ -662,12 +986,40 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     pulse *= still ? 0 : Math.exp(-dt * 3);
     hemi.intensity = mood.hemi * (1 + 0.6 * pulse);
 
+    let screensChanged = false;
     ids.forEach((id, i) => {
       const c = creatures[id];
       c.scale += (c.target - c.scale) * k(5);
       const s = c.scale;
-      let y = still ? 0 : Math.sin(now * 0.0017 + c.phase) * 0.035 * s;
+      const p = c.root.position;
+      let y = 0;
+      let air = 0;
       let stretch = 1;
+      let roll = 0;
+      let lean = 0;
+      if (c.state === "leap") {
+        // Over the desk: an arc, twisting mid-air to face the right way.
+        const t = clamp((now - c.leap.start) / LEAP_MS, 0, 1);
+        const e = ease(t);
+        p.x = c.leap.from.x + (c.leap.to.x - c.leap.from.x) * e;
+        p.z = c.leap.from.z + (c.leap.to.z - c.leap.from.z) * e;
+        c.yaw = c.leap.fromYaw + wrap(c.leap.toYaw - c.leap.fromYaw) * smooth(0.1, 0.8, t);
+        air = 4 * LEAP_H * t * (1 - t);
+        stretch = 1 + 0.12 * Math.sin(Math.PI * t);
+      } else {
+        const seated = c.state === "seat" || c.state === "happy" || c.state === "work";
+        const want = c.moving ? c.heading : seated ? c.station.yaw : c.yaw;
+        c.yaw += wrap(want - c.yaw) * k(7);
+        if (still) y = 0;
+        else if (c.moving) {
+          y = Math.abs(Math.sin(c.stepPhase)) * 0.07 * s; // a waddle
+          roll = Math.sin(c.stepPhase) * 0.09;
+        } else if (c.state === "work") {
+          y = Math.abs(Math.sin(now * 0.021 + c.phase)) * 0.03 * s; // typing away
+          lean = 0.14;
+        } else y = Math.sin(now * 0.0017 + c.phase) * 0.035 * s;
+      }
+      c.root.rotation.y = c.yaw;
       c.hopY = 0;
       if (c.hopAt !== null && now >= c.hopAt) {
         const t = (now - c.hopAt) / HOP_MS;
@@ -677,40 +1029,63 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
           stretch = 1 + 0.14 * Math.sin(Math.PI * t);
         }
       }
-      y += c.hopY;
-      c.body.position.y = y;
+      air += c.hopY;
+      c.body.position.y = y + air;
       const side = s / Math.sqrt(stretch);
       c.body.scale.set(side, s * stretch, side);
+      let glanceYaw = 0;
       if (c.glance) {
         const t = (now - c.glance.start) / c.glance.dur;
-        c.body.rotation.y = t >= 1 ? 0 : c.glance.yaw * smooth(0, 0.18, t) * (1 - smooth(0.78, 1, t));
-        if (t >= 1) c.glance = null;
-      } else c.body.rotation.y = 0;
+        const idle = c.state === "pause" || c.state === "seat";
+        if (t >= 1 || !idle) c.glance = null;
+        else glanceYaw = c.glance.yaw * smooth(0, 0.18, t) * (1 - smooth(0.78, 1, t));
+      }
+      c.body.rotation.set(lean, glanceYaw, roll);
 
-      c.lit += (c.litTarget - c.lit) * k(30);
+      const highlighted = c.highlightUntil > now;
+      const busy = c.state === "happy" || c.state === "work";
+      c.lit += ((c.litTarget || busy || highlighted ? 1 : 0) - c.lit) * k(30);
       c.bulb.material.emissiveIntensity = 0.12 + c.lit * 1.7 * mood.glow;
       c.bulb.scale.setScalar(1 + 0.3 * c.lit);
 
-      const lift = 1 - 0.45 * clamp(c.hopY / (0.55 * s), 0, 1);
-      tmp.position.copy(c.root.position).setY(0.012);
+      c.screen += ((busy || highlighted ? 1 : 0) - c.screen) * k(6);
+      const flicker = c.state === "work" && !still ? 0.88 + 0.12 * Math.sin(now * 0.031 + c.phase * 5) : 1;
+      const level = c.screen * flicker;
+      if (Math.abs(level - c.screenShown) > 0.004) {
+        c.screenShown = level;
+        screens.setColorAt(i, screenColor.copy(screenIdle).lerp(screenGlow[i], level));
+        screensChanged = true;
+      }
+      // Reduced motion's stand-in for the trip: the creature itself lights up.
+      const glow = c.glow + ((highlighted ? 1 : 0) - c.glow) * k(10);
+      if (Math.abs(glow - c.glow) > 0.002 || (glow === 0) !== (c.glow === 0)) {
+        for (const m of c.skins) m.emissive.copy(m.color).multiplyScalar(0.35 * glow);
+      }
+      c.glow = glow;
+
+      const lift = 1 - 0.45 * clamp(air / (0.55 * s), 0, 1);
+      tmp.position.copy(p).setY(0.012);
       tmp.rotation.set(0, 0, 0);
       tmp.scale.set(1.15 * s * lift, 1, 1.15 * s * lift);
       tmp.updateMatrix();
       shadows.setMatrixAt(i, tmp.matrix);
     });
     shadows.instanceMatrix.needsUpdate = true;
+    if (screensChanged) screens.instanceColor.needsUpdate = true;
 
-    // Spotlight: a soft cone and a pool of light on the pick.
+    // Spotlight on the pick's desk while it heads there and works (reduced
+    // motion: while it's picked or just sent to).
+    const sc = spot.id && creatures[spot.id];
+    spot.target = sc && (still ? sc.picked || sc.highlightUntil > now : sc.picked && atDesk(sc)) ? 1 : 0;
     spot.v += (spot.target - spot.v) * k(8);
-    const lit = spot.v > 0.01 && spot.id;
+    const lit = spot.v > 0.01 && sc;
     cone.visible = pool.visible = Boolean(lit);
     if (lit) {
-      const c = creatures[spot.id];
-      const s = c.scale;
-      cone.position.copy(c.root.position).setY(1.7 * s + 0.4);
+      const s = sc.scale;
+      cone.position.copy(sc.station.pos).setY(1.7 * s + 0.4);
       cone.scale.set(s, s, s);
       cone.material.opacity = mood.spot * spot.v;
-      pool.position.copy(c.root.position).setY(0.02);
+      pool.position.copy(sc.station.pos).setY(0.02);
       pool.scale.setScalar(s);
       pool.material.opacity = 0.75 * spot.v;
     }
@@ -821,8 +1196,8 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
     if (reduced.matches) {
       tween?.resolve();
       tween = null;
-      for (const id of ids) creatures[id].hopAt = null;
     }
+    seatEveryone(performance.now(), !reduced.matches); // still: everyone at their desk
     invalidate();
   };
   const resizeObserver = new ResizeObserver(onResize);
@@ -836,6 +1211,7 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
 
   applyMood();
   relayout(true);
+  seatEveryone(performance.now(), !reduced.matches); // they clock out one by one
   for (const id of ids) {
     sync(id);
     creatures[id].scale = creatures[id].target;
@@ -844,17 +1220,36 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
   start();
 
   return {
-    // World routing: after the lamp race lands, swoop to the pick, spotlight it,
-    // hop, then let the app send. Reduced motion cuts straight to the send.
+    // World routing: after the lamp race lands, the camera swoops to the pick's
+    // desk (it's already on its way), then the app sends. Reduced motion
+    // highlights the pick and sends right away.
     sendsAfterLanding: true,
     afterLanding(id) {
       if (reduced.matches || document.hidden || !creatures[id]) return Promise.resolve();
       if (focusId !== id || !landing) startSwoop(id);
-      return Promise.race([landing, wait(SWOOP_MS + HOP_MS + 900)]);
+      return Promise.race([landing, wait(SWOOP_MS + 400)]);
+    },
+    // Every send: those creatures go to work (Send to all: everyone at once).
+    sent(list) {
+      const now = performance.now();
+      const known = list.filter((id) => creatures[id]);
+      if (reduced.matches) highlight(known, now);
+      else {
+        const crew = known.map((id) => creatures[id]);
+        const group = crew.length > 1 ? { members: crew, deadline: now + 12000 } : null;
+        for (const c of crew) {
+          if (group) c.group = group;
+          summon(c, now);
+          if (group && c.state === "work") c.until = Infinity;
+        }
+        if (group && crew.every((m) => m.state === "work")) release(group, now);
+      }
+      invalidate();
     },
     unmount() {
       stop();
       clearTimeout(returnTimer);
+      clearTimeout(highlightTimer);
       tween?.resolve();
       observer.disconnect();
       modeObserver.disconnect();

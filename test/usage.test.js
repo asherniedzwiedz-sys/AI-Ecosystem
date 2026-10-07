@@ -7,15 +7,15 @@ import {
   layoutBoard,
   parseUsage,
   rankAIs,
-  seedRegulars,
-  seedSurprise,
   tiersFor,
 } from "../public/js/usage.js";
 
 const usageOf = (counts) => ({ ...emptyUsage(), ...counts });
 
-// Simulates CSS grid dense packing to prove the layout leaves no holes.
-function packedGrid(layout, cols) {
+// Simulates CSS grid dense packing (tiles, then the spare sockets) to prove
+// the board leaves no holes.
+function packedGrid({ items, spare }, cols) {
+  const layout = [...items, ...Array.from({ length: spare }, (_, i) => ({ id: `spare${i}`, tier: "sm" }))];
   const rows = [];
   const free = (r, c) => !rows[r]?.[c];
   const fill = (r, c, id) => {
@@ -24,7 +24,7 @@ function packedGrid(layout, cols) {
   };
   for (const item of layout) {
     const [tw, h] = TIER_SPAN[item.tier];
-    const w = item.colSpan || Math.min(tw, cols);
+    const w = Math.min(tw, cols);
     let placed = false;
     for (let r = 0; !placed; r += 1) {
       for (let c = 0; c + w <= cols && !placed; c += 1) {
@@ -46,13 +46,34 @@ test("tiers: rank 1 is 2x2, ranks 2-3 are 2x1, the rest 1x1; unused stays 1x1", 
   assert.deepEqual(tiersFor([0, 0, 0, 0, 0, 0, 0, 0]), Array(8).fill("sm"));
 });
 
-test("tiers: ties never promote", () => {
-  // Send to all on an even board: everyone at 1, nobody gets crowned.
-  assert.deepEqual(tiersFor(Array(8).fill(1)), Array(8).fill("sm"));
-  // Two tied at the top share the wide tier instead of one getting 2x2.
-  assert.deepEqual(tiersFor([2, 2, 1, 0, 0, 0, 0, 0]).slice(0, 4), ["md", "md", "md", "sm"]);
-  // A three-way tie for second keeps all three at 1x1.
-  assert.deepEqual(tiersFor([3, 1, 1, 1, 0, 0, 0, 0]).slice(0, 4), ["lg", "sm", "sm", "sm"]);
+test("tiers: ties go by position (ORDER), but unused AIs never grow", () => {
+  assert.deepEqual(tiersFor(Array(8).fill(1)), ["lg", "md", "md", "sm", "sm", "sm", "sm", "sm"]);
+  assert.deepEqual(tiersFor([2, 2, 0, 0, 0, 0, 0, 0]).slice(0, 3), ["lg", "md", "sm"]);
+});
+
+test("layoutBoard: Send to all on a fresh board crowns the first AI in ORDER", () => {
+  const { items } = layoutBoard(Object.fromEntries(ORDER.map((id) => [id, 1])), 4);
+  assert.deepEqual(
+    items.slice(0, 4).map(({ id, tier, rank }) => [id, tier, rank]),
+    [
+      [ORDER[0], "lg", 1],
+      [ORDER[1], "md", 2],
+      [ORDER[2], "md", 3],
+      [ORDER[3], "sm", 4],
+    ],
+  );
+});
+
+test("layoutBoard: all zeros render even, with no ranks", () => {
+  const { items, spare } = layoutBoard(emptyUsage(), 4);
+  assert.ok(items.every(({ tier, rank }) => tier === "sm" && rank === 0));
+  assert.equal(spare, 0);
+});
+
+test("layoutBoard: the least-used AI is never bigger than a more-used one", () => {
+  const { items, spare } = layoutBoard(usageOf({ deepseek: 9, grok: 5, muse: 3, claude: 1 }), 4);
+  assert.equal(spare, 3); // 4 + 2 + 2 + 5 cells: the last row has 3 spare sockets
+  assert.ok(items.every((item) => !("colSpan" in item)));
 });
 
 test("rankAIs sorts by usage and keeps the default order for ties", () => {
@@ -81,7 +102,7 @@ for (const [name, usage] of Object.entries(scenarios)) {
   for (const cols of [4, 2]) {
     test(`layoutBoard leaves no holes: ${name}, ${cols} columns`, () => {
       const layout = layoutBoard(usage, cols);
-      assert.equal(layout.length, ORDER.length);
+      assert.equal(layout.items.length, ORDER.length);
       const grid = packedGrid(layout, cols);
       for (const row of grid) {
         for (let c = 0; c < cols; c += 1) assert.ok(row[c], `hole in ${JSON.stringify(grid)}`);
@@ -91,32 +112,14 @@ for (const [name, usage] of Object.entries(scenarios)) {
 }
 
 test("layoutBoard puts the most-used AI first as the big tile", () => {
-  const layout = layoutBoard(usageOf({ perplexity: 7, claude: 3, muse: 1 }), 4);
+  const { items } = layoutBoard(usageOf({ perplexity: 7, claude: 3, muse: 1 }), 4);
   assert.deepEqual(
-    layout.slice(0, 4).map(({ id, tier }) => [id, tier]),
+    items.slice(0, 4).map(({ id, tier }) => [id, tier]),
     [
       ["perplexity", "lg"],
       ["claude", "md"],
       ["muse", "md"],
       ["chatgpt", "sm"],
     ],
-  );
-});
-
-test("seedRegulars ranks picks in tap order", () => {
-  const usage = seedRegulars(["deepseek", "claude", "grok"]);
-  assert.deepEqual(rankAIs(usage).slice(0, 3), ["deepseek", "claude", "grok"]);
-  assert.equal(usage.chatgpt, 0);
-});
-
-test("seedSurprise gives exactly three AIs a head start", () => {
-  let n = 0;
-  const fakeRandom = () => ((n = (n * 7 + 3) % 11), n / 11);
-  const usage = seedSurprise(fakeRandom);
-  assert.deepEqual(
-    Object.values(usage)
-      .filter(Boolean)
-      .sort(),
-    [1, 2, 3],
   );
 });

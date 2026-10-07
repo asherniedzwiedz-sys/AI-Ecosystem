@@ -4,7 +4,8 @@ import { ding, setSound, tick, unlockAudio } from "./audio.js";
 import { randomSurprise } from "./surprises.js";
 import { DEFAULT_THEME, THEMES, THEME_KEY, getTheme } from "./themes.js";
 import { USAGE_KEY, emptyUsage, layoutBoard, parseUsage } from "./usage.js";
-import { SETUP_KEY, createSetup } from "./setup.js";
+import { SETUP_DONE_KEY, createSetup } from "./setup.js";
+import { store } from "./store.js";
 import { formatSize, isTextKind, outgoingText, readAttachment, releaseAttachment, routerMeta } from "./attachment.js";
 
 const API_URL = "/api/route";
@@ -22,7 +23,8 @@ const KEYS = {
   mode: "switchboard.mode", // light / dark
   theme: THEME_KEY,
   usage: USAGE_KEY,
-  setup: SETUP_KEY,
+  setupDone: SETUP_DONE_KEY, // "true" once setup is done; only Redo setup shows it again
+  legacySetup: "switchboard-setup", // what earlier versions stored instead
 };
 
 const $ = (id) => document.getElementById(id);
@@ -58,6 +60,7 @@ const els = {
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const tiles = {};
 const renderedHtml = {}; // last renderTile output per AI
+const spares = []; // empty sockets that fill out the board's last row
 let current = null; // last routing result
 let busy = false;
 let lastSurprise = null;
@@ -69,22 +72,6 @@ let attachment = null; // see attachment.js
 let attachToken = 0; // ignores a slow read if another file was attached meanwhile
 let mounted = null; // what the active theme's mount() returned (the 3D world), if anything
 let mountToken = 0; // ignores a slow mount if the theme changed meanwhile
-
-// localStorage can throw (private mode, blocked storage): treat it as optional.
-const store = {
-  get(key, fallback) {
-    try {
-      return localStorage.getItem(key) ?? fallback;
-    } catch {
-      return fallback;
-    }
-  },
-  set(key, value) {
-    try {
-      localStorage.setItem(key, value);
-    } catch {}
-  },
-};
 
 function el(tag, className, content) {
   const node = document.createElement(tag);
@@ -142,13 +129,13 @@ function paint(el, id) {
 function renderBoard() {
   const theme = getTheme(themeId);
   els.board.dataset.skin = theme.id;
-  const layout = layoutBoard(usage, gridColumns());
+  const { items: layout, spare } = layoutBoard(usage, gridColumns());
 
-  for (const { id, rank, count, tier, colSpan } of layout) {
+  for (const { id, rank, count, tier } of layout) {
     const tile = tiles[id];
     paint(tile, id);
     tile.dataset.size = tier;
-    tile.style.gridColumn = colSpan ? `span ${colSpan}` : "";
+    tile.dataset.rank = String(rank); // 0 = not used yet
     // Only swap the inside when the theme's output changed: rebuilding would
     // recreate the mascot image, which flashes while it decodes again.
     const html = theme.renderTile({ id, ...AIS[id] }, rank, count);
@@ -163,6 +150,13 @@ function renderBoard() {
   const shown = [...els.board.children].filter((node) => node.classList.contains("tile"));
   const inOrder = layout.every(({ id }, i) => shown[i] === tiles[id]);
   if (!inOrder) els.board.append(...layout.map(({ id }) => tiles[id]));
+
+  // Spare sockets fill the last row, so a little-used AI is never stretched
+  // bigger than the ones you use more. The 3D world has no grid.
+  const wanted = theme.mount ? 0 : spare;
+  while (spares.length < wanted) spares.push(el("div", "tile-spare"));
+  for (const node of spares.splice(wanted)) node.remove();
+  if (spares.length) els.board.append(...spares);
 
   if (current) labelBadges(current.pick, current.runnerUp);
 }
@@ -181,6 +175,7 @@ function scheduleRelayout(delay) {
 function recordSends(ids, relayoutDelay = RELAYOUT_DELAY_MS) {
   for (const id of ids) usage[id] += 1;
   store.set(KEYS.usage, JSON.stringify(usage));
+  mounted?.sent?.(ids);
   scheduleRelayout(relayoutDelay);
 }
 
@@ -790,27 +785,39 @@ function disarmReset() {
   els.resetUsage.classList.remove("armed");
 }
 
-const SETUP_TOASTS = {
-  regulars: "Your regulars are up front. Tiles keep growing as you use them.",
-  even: "All lines start even. Tiles grow as you use them.",
-  surprise: "The operator shuffled the board. Tiles grow as you use them.",
-};
+function saveUsage(next) {
+  usage = next;
+  store.set(KEYS.usage, JSON.stringify(usage));
+  renderBoard();
+  flashAll();
+}
 
 function initSetup() {
   setup = createSetup({
-    onApply(choice, seeded) {
-      usage = seeded;
-      store.set(KEYS.usage, JSON.stringify(usage));
-      store.set(KEYS.setup, choice);
-      renderBoard();
-      flashAll();
-      toast(SETUP_TOASTS[choice]);
+    currentUsage: () => usage,
+    onChoose(choice) {
+      store.set(KEYS.setupDone, "true");
+      if (choice !== "fresh") return;
+      saveUsage(emptyUsage());
+      toast("Fresh start. Every AI is the same size and grows as you use it.");
     },
-    onCancel() {
-      // Dismissing the first-run setup counts as "start even", so it doesn't nag.
-      if (!store.get(KEYS.setup, null)) store.set(KEYS.setup, "even");
+    onImport(counts) {
+      saveUsage({ ...usage, ...counts });
+      const top = layoutBoard(usage, gridColumns()).items[0];
+      toast(top.count ? `Imported. ${AIS[top.id].name} leads with ${top.count.toLocaleString()}.` : "Imported.");
+    },
+    onClose() {
+      // Closing it without choosing counts as done too, so it never nags.
+      store.set(KEYS.setupDone, "true");
     },
   });
+}
+
+function setupDone() {
+  if (store.get(KEYS.setupDone, null) === "true") return true;
+  if (store.get(KEYS.legacySetup, null) === null) return false;
+  store.set(KEYS.setupDone, "true"); // set up under an earlier version
+  return true;
 }
 
 function wireControls() {
@@ -886,7 +893,7 @@ function init() {
   renderCounter(Number(store.get(KEYS.calls, "0")));
   applySound(store.get(KEYS.sound, "on") === "on");
   if (document.documentElement.dataset.theme) syncThemeColor();
-  if (!store.get(KEYS.setup, null)) setup.open();
+  if (!setupDone()) setup.open();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch((err) => console.info("No service worker:", err.message));

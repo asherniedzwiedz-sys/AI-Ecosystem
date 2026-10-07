@@ -11,9 +11,10 @@ Lines on the board: Claude, ChatGPT, Muse, Gemini, Copilot, Grok, DeepSeek, Perp
 - **Sending:** tiles are links. Claude, ChatGPT, Perplexity, Grok and Copilot open with the prompt prefilled. Gemini, DeepSeek and Muse just open, and you paste (the prompt is always copied to your clipboard).
 - **Attach a file:** the Attach file button, drag and drop, or pasting a screenshot. The router (and the offline rules) factor in the kind of file: a PDF leans Claude, a spreadsheet Copilot, a video Gemini. A link can't carry a file to another site, so on send: a text or code file's contents go along with the prompt; an image is copied so you can paste it in; anything else gets a reminder to attach it on the AI's site (on phones, Share sends it straight to the AI's app). Files stay on the device; the router only sees the name, type and size, plus the start of a text file.
 - **Send to all:** copies the prompt once and opens all 8 AIs in new tabs (fills in a random prompt if the box is empty). Browsers often block extra tabs; the page says how many were blocked so you can allow pop-ups and retry.
-- **Tile sizes:** every send counts toward that AI (stored in `switchboard-usage`). Your most-used AI gets a 2x2 tile, the next two get 2x1, the rest 1x1 (ties don't promote anyone). The first visit offers a head start: pick your regulars, start even, or a random board. Settings has Redo setup and Reset usage.
+- **Sizes:** every send counts toward that AI (stored in `switchboard-usage`; Send to all counts once for each). AIs are ranked by count, ties broken by line order. Rank 1 gets a 2x2 tile, ranks 2-3 get 2x1, the rest 1x1; an AI you haven't used never grows, so an all-zero board is even. Spare sockets fill out the last row instead of stretching a tile. Sizes update on load and after every send. Settings has Redo setup and Reset usage.
+- **First-run setup:** **Start fresh** (every count at 0) or **Upload my data**: pick which AI a chat export is from (ChatGPT's `conversations.json` counts the messages you sent; Claude's export works too), or paste counts for several AIs as JSON (`{"claude": 120, "chatgpt": 80}`) or CSV lines (`claude,120`). It shows what it found and only saves on Confirm. The file never leaves the device. Setup shows until `switchboard-setup-done` is `true`; only Redo setup brings it back.
 - **Themes:** tiles render through a theme. **Creatures** (default) shows each AI's mascot in a lamp-colored ring that bobs, and hops when routing lands on it; **Classic** is the original lamp tiles; **World** is a tiny 3D diorama (below). Pick one in Settings (stored in `switchboard-theme`).
-- **World theme:** eight blob creatures run a vintage switchboard from their desks (Three.js 0.186.1 from jsDelivr via an import map, loaded only when World is picked, then cached for offline). Tap a creature (or its name tag) to send. Routing races the console lamps, swoops the camera to the pick, spotlights it and hops, then sends; browsers only allow opening a tab a few seconds after a tap, so if routing ran long it asks for one more tap instead. Usage sets each creature's size. Drag to look around (clamped). Light/dark switches between day and dusk; reduced motion makes the scene static and skips the swoop. If WebGL or the CDN isn't available, it falls back to Creatures.
+- **World theme:** eight blob creatures share a vintage switchboard, each with its own desk (Three.js 0.186.1 from jsDelivr via an import map, loaded only when World is picked, then cached for offline). They wander the platform on their own. Tap a creature (or its name tag) to send: it hurries to its desk, hops over into its seat, types for about 4 seconds with its screen glowing, then wanders off. Send to all sends everyone to work at once. Routing races the console lamps and swoops the camera to the pick's desk while it heads there, then sends; browsers only allow opening a tab a few seconds after a tap, so if routing ran long it asks for one more tap instead. Usage rank sets each creature's size (rank 1 is the biggest). Drag to look around (clamped). Light/dark switches between day and dusk; reduced motion keeps everyone at their desks and lights up the creature and its desk instead of the trip. If WebGL or the CDN isn't available, it falls back to Creatures.
 - **Offline:** a service worker caches the app, so it opens with no signal and routes with the rules.
 
 ## Project layout
@@ -24,11 +25,14 @@ public/            static site (Vercel serves this folder)
   styles.css
   js/app.js        UI: board, lamp roulette, sending, Send to all, settings
   js/ais.js        the AIs: order, URLs, colors, mascots, quips, router notes (shared with the API)
-  js/themes.js     tile themes (THEMES registry: classic, creatures)
+  js/themes.js     tile themes (THEMES registry: creatures, classic, world)
   js/usage.js      usage counts -> rank -> tile size tiers
-  js/setup.js      first-run setup dialog
+  js/setup.js      first-run setup dialog (Start fresh / Upload my data)
+  js/usage-import.js  reads chat exports and pasted counts for setup
+  js/store.js      localStorage wrapper that falls back to memory
   js/attachment.js attached files: kind detection, reading, image prep
   js/world.js      the 3D World theme (Three.js scene; loaded on demand)
+  js/world-nav.js  where World's creatures can walk (clearance grid + A*)
   js/rules.js      offline keyword router (rulesPick)
   js/audio.js      WebAudio ticks + ding
   js/surprises.js  "Surprise me" prompts

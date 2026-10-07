@@ -166,30 +166,55 @@
         <section class="setup-step" id="setup-choose">
           <p class="mono-label">First call</p>
           <h2 id="setup-title">Set up your switchboard</h2>
-          <p class="field-note">Tiles grow as you use them. Want a head start?</p>
+          <p class="field-note">The AIs you use most get bigger. Start from zero, or bring your history.</p>
           <div class="setup-options">
-            <button type="button" class="setup-option" data-choice="regulars">
-              <strong>Pick my regulars</strong>
-              <span>Tap the AIs you already use, favorite first. They start bigger.</span>
+            <button type="button" class="setup-option" data-choice="fresh">
+              <strong>Start fresh</strong>
+              <span>Every AI starts the same size and grows as you use it.</span>
             </button>
-            <button type="button" class="setup-option" data-choice="even">
-              <strong>Start even</strong>
-              <span>Every line starts the same size and grows as you use it.</span>
-            </button>
-            <button type="button" class="setup-option" data-choice="surprise">
-              <strong>Surprise me</strong>
-              <span>A random head start. Let the operator decide.</span>
+            <button type="button" class="setup-option" data-choice="upload">
+              <strong>Upload my data</strong>
+              <span>Import your chat history so the board starts with the AI you really use most.</span>
             </button>
           </div>
         </section>
-        <section class="setup-step" id="setup-pick" hidden>
-          <p class="mono-label">Pick my regulars</p>
-          <h2>Which AIs do you use?</h2>
-          <p class="field-note">Tap them in order, favorite first. Tap again to remove one.</p>
-          <div class="pick-grid" id="pick-grid"></div>
+        <section class="setup-step" id="setup-upload" hidden>
+          <p class="mono-label">Upload my data</p>
+          <h2>Bring your history</h2>
+          <label class="field-label" for="import-ai">Which AI is this file from?</label>
+          <select class="select" id="import-ai"></select>
+          <p class="field-note">
+            ChatGPT: Settings → Data controls → Export data. Unzip the download and pick
+            <code>conversations.json</code>. Every message you sent counts.
+          </p>
           <div class="field-actions">
-            <button type="button" class="btn btn-ghost" id="setup-back">Back</button>
-            <button type="button" class="btn btn-primary" id="setup-done" disabled>Done</button>
+            <button type="button" class="btn btn-primary" id="import-file-btn">Choose file</button>
+            <input type="file" id="import-file" accept=".json,.csv,.txt,application/json,text/csv,text/plain" hidden />
+          </div>
+          <label class="field-label" for="import-paste">Or paste counts for several AIs</label>
+          <textarea
+            class="import-paste"
+            id="import-paste"
+            rows="3"
+            spellcheck="false"
+            placeholder='{"claude": 120, "chatgpt": 80}  or one per line: claude,120'
+          ></textarea>
+          <p class="import-status" id="import-status" role="status" hidden></p>
+          <div class="field-actions">
+            <button type="button" class="btn btn-ghost" id="upload-back">Back</button>
+            <button type="button" class="btn btn-ghost" id="import-paste-btn" disabled>Read pasted counts</button>
+          </div>
+          <p class="field-note">Files stay on this device. Only the counts are saved.</p>
+        </section>
+        <section class="setup-step" id="setup-review" hidden>
+          <p class="mono-label">Upload my data</p>
+          <h2>Here's what I found</h2>
+          <p class="field-note" id="review-source"></p>
+          <ol class="review-list" id="review-list"></ol>
+          <p class="field-note" id="review-note"></p>
+          <div class="field-actions">
+            <button type="button" class="btn btn-ghost" id="review-back">Back</button>
+            <button type="button" class="btn btn-primary" id="review-confirm">Confirm</button>
           </div>
         </section>
       </div>

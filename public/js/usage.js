@@ -1,8 +1,7 @@
-// Usage per AI drives tile size: the more you send to an AI, the bigger its tile.
-// Rank 1 gets a 2x2 tile, ranks 2-3 get 2x1, the rest 1x1. Unused AIs stay 1x1,
-// and ties never promote: a tile only moves up a tier when it's strictly ahead
-// of the first tile below that tier (so "Send to all" on an even board keeps
-// it even instead of crowning whoever is first in ORDER).
+// Usage per AI drives size: the more you send to an AI, the bigger it gets.
+// AIs are ranked by count, ties broken by ORDER. Rank 1 gets a 2x2 tile,
+// ranks 2-3 get 2x1, the rest 1x1. An AI with no sends never grows, so a
+// fresh board (all zeros) renders even.
 import { ORDER } from "./ais.js";
 
 export const USAGE_KEY = "switchboard-usage";
@@ -37,55 +36,31 @@ export function rankAIs(usage) {
   return [...ORDER].sort((a, b) => (usage[b] ?? 0) - (usage[a] ?? 0));
 }
 
-// Tiers for counts sorted most-used first. Never puts a smaller tier before a
-// bigger one, which keeps the grid packing hole-free (see layoutBoard).
+// Tiers for counts sorted most-used first: by position, but only for AIs
+// you've actually used. Sizes never grow down the list, so the grid packs
+// with any leftover cells in its last row (see layoutBoard).
 export function tiersFor(sortedCounts) {
-  const at = (i) => sortedCounts[i] ?? 0;
   return sortedCounts.map((count, i) => {
     if (!count) return "sm";
-    if (i === 0 && count > at(1)) return "lg";
-    if (i <= 2 && count > at(3)) return "md";
-    return "sm";
+    if (i === 0) return "lg";
+    return i <= 2 ? "md" : "sm";
   });
 }
 
-// Ranked tiles with their tier, plus an extra column span for the trailing
-// 1x1 tiles so the last grid row never has holes. Big tiles come first and the
-// grid packs densely, so any leftover cells are always in the last row.
+// Ranked tiles with their tier. `rank` is 1-based among used AIs (0 = unused),
+// for themes that size things themselves. `spare` is how many empty cells the
+// last grid row has: the board shows them as spare sockets rather than
+// stretching the least-used tiles to fill the row.
 export function layoutBoard(usage, cols) {
   const ranked = rankAIs(usage);
   const tiers = tiersFor(ranked.map((id) => usage[id] ?? 0));
-  const items = ranked.map((id, i) => ({ id, rank: i + 1, count: usage[id] ?? 0, tier: tiers[i], colSpan: 0 }));
+  const items = ranked.map((id, i) => {
+    const count = usage[id] ?? 0;
+    return { id, rank: count ? i + 1 : 0, count, tier: tiers[i] };
+  });
   const cells = items.reduce((sum, { tier }) => {
     const [w, h] = TIER_SPAN[tier];
     return sum + Math.min(w, cols) * h;
   }, 0);
-  const leftover = cells % cols;
-  if (leftover) {
-    const lastRow = items.slice(-leftover);
-    const base = Math.floor(cols / leftover);
-    lastRow.forEach((item, i) => {
-      item.colSpan = base + (i < cols % leftover ? 1 : 0);
-    });
-  }
-  return items;
-}
-
-// Setup: the AIs you tap, in order, get a head start (favorite first).
-export function seedRegulars(picked) {
-  const usage = emptyUsage();
-  picked.forEach((id, i) => {
-    if (id in usage) usage[id] = picked.length - i;
-  });
-  return usage;
-}
-
-// Setup: a random top three.
-export function seedSurprise(random = Math.random) {
-  const shuffled = [...ORDER];
-  for (let i = shuffled.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return seedRegulars(shuffled.slice(0, 3));
+  return { items, spare: (cols - (cells % cols)) % cols };
 }
