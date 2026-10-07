@@ -24,6 +24,7 @@ const SWOOP_MS = 1100;
 const HOP_MS = 750;
 const HOME_MS = 900;
 const RETURN_AFTER_MS = 2600;
+const MIN_WORLD_PX = 300; // phones: the world keeps at least this much height below the cards
 
 const MOODS = {
   day: {
@@ -442,8 +443,18 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
       const x = Math.max(0, layout.shell.getBoundingClientRect().right + 8);
       return { x, y: 0, w: Math.max(240, W - x), h: H };
     }
-    const y = clamp(layout.readout.getBoundingClientRect().bottom + 8, 0, H * 0.62);
+    const y = clamp(layout.readout.getBoundingClientRect().bottom + 8, 0, H - minWorld());
     return { x: 0, y, w: W, h: H - y };
+  }
+
+  const minWorld = () => Math.min(MIN_WORLD_PX, H * 0.45);
+
+  // Phones: once a pick lands, the readout grows. If it would hide the world,
+  // scroll the cards up just enough (the shell has bottom room for this).
+  function makeRoom() {
+    if (sidebarQuery.matches) return;
+    const short = layout.readout.getBoundingClientRect().bottom + 8 - (H - minWorld());
+    if (short > 1) window.scrollTo({ top: scrollY + short, behavior: reduced.matches ? "instant" : "smooth" });
   }
 
   function fitDistance(w, h) {
@@ -454,10 +465,14 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
   }
 
   function relayout(instant = false) {
-    W = Math.max(1, innerWidth);
-    H = Math.max(1, innerHeight);
-    renderer.setSize(W, H, false);
-    camera.aspect = W / H;
+    const w = Math.max(1, innerWidth);
+    const h = Math.max(1, innerHeight);
+    if (w !== W || h !== H) {
+      W = w;
+      H = h;
+      renderer.setSize(W, H, false);
+      camera.aspect = W / H;
+    }
     const r = freeRect();
     Object.assign(fitGoal, { cx: r.x + r.w / 2, cy: r.y + r.h / 2, w: r.w, h: r.h });
     const el = r.h > r.w * 0.9 ? HOME_EL_TALL : HOME_EL;
@@ -525,6 +540,7 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
 
   function startSwoop(id) {
     clearTimeout(returnTimer);
+    makeRoom();
     mode = "focus";
     focusId = id;
     landing = goTo(SWOOP_MS)
@@ -562,6 +578,7 @@ export function mountWorld({ board, tiles, ids, palette, layout }) {
       if (picked) {
         spot.id = id;
         spot.target = 1;
+        makeRoom();
         if (!reduced.matches && focusId !== id) startSwoop(id);
       } else {
         if (spot.id === id) spot.target = 0;

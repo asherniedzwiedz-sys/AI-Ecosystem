@@ -1211,6 +1211,13 @@ body[data-skin="world"] .footnote {
   display: none;
 }
 
+/* Phones: room to scroll the cards up when a long readout would cover the world. */
+@media (max-width: 999px) {
+  body[data-skin="world"] .shell {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 320px);
+  }
+}
+
 .world-canvas {
   position: absolute;
   inset: 0;
