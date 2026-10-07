@@ -25,6 +25,7 @@
   --tile-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(60, 40, 10, 0.08),
     0 8px 18px -10px rgba(60, 40, 10, 0.25);
   --danger: #b4441b;
+  --world-bg: radial-gradient(120% 90% at 50% 28%, #ffffff 0%, #ece6dc 62%, #e1d8ca 100%);
   --sun: none;
   --moon: block;
   color-scheme: light;
@@ -56,6 +57,7 @@
     --tile-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4),
       0 10px 22px -12px rgba(0, 0, 0, 0.7);
     --danger: #ff8a5c;
+    --world-bg: radial-gradient(120% 90% at 50% 24%, #2f2b4b 0%, #1b1929 60%, #121019 100%);
     --sun: block;
     --moon: none;
     color-scheme: dark;
@@ -87,6 +89,7 @@
   --tile-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4),
     0 10px 22px -12px rgba(0, 0, 0, 0.7);
   --danger: #ff8a5c;
+  --world-bg: radial-gradient(120% 90% at 50% 24%, #2f2b4b 0%, #1b1929 60%, #121019 100%);
   --sun: block;
   --moon: none;
   color-scheme: dark;
@@ -585,7 +588,7 @@ textarea:focus-visible {
 
 .btn-send {
   background: var(--c, var(--amber));
-  color: #15120e;
+  color: var(--c-ink, #15120e);
   box-shadow: 0 0 18px -4px color-mix(in srgb, var(--c, var(--amber)) 70%, transparent);
 }
 
@@ -611,7 +614,7 @@ textarea:focus-visible {
 }
 
 .btn-send .dot {
-  background: #15120e;
+  background: currentColor;
   opacity: 0.6;
 }
 
@@ -751,7 +754,7 @@ textarea:focus-visible {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   background: var(--c);
-  color: #15120e;
+  color: var(--c-ink, #15120e);
   opacity: 0;
   transform: translateY(4px) scale(0.9);
   transition: opacity 0.2s, transform 0.25s cubic-bezier(0.2, 1.4, 0.4, 1);
@@ -1180,6 +1183,123 @@ textarea:focus-visible {
   margin: 10px 2px 0;
   font-size: 13px;
   color: var(--danger);
+}
+
+/* ---------- world theme (3D) ---------- */
+
+/* The scene fills the window; the UI cards float on top of it. */
+.board[data-skin="world"] {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: var(--world-bg);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+body[data-skin="world"] .topbar,
+body[data-skin="world"] .console,
+body[data-skin="world"] .readout {
+  position: relative;
+  z-index: 2;
+}
+
+body[data-skin="world"] .footnote {
+  display: none;
+}
+
+.world-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.board[data-skin="world"][data-loading]::after {
+  content: "Building the world…";
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  font: 600 15px/1 "IBM Plex Sans", system-ui, sans-serif;
+  color: var(--muted);
+}
+
+/* Tiles become name tags; world.js moves them over each creature's head. */
+.board[data-skin="world"] .tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 5px 11px 5px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.45);
+  font: 600 13px/1 "IBM Plex Sans", system-ui, sans-serif;
+  white-space: nowrap;
+  transform: translate(-9999px, 0);
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+  will-change: transform;
+}
+
+.board[data-skin="world"] .tile.lit,
+.board[data-skin="world"] .tile.picked,
+.board[data-skin="world"] .tile.hover {
+  border-color: var(--c);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 45%, transparent), 0 6px 16px -8px rgba(0, 0, 0, 0.45);
+}
+
+.world-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.board[data-skin="world"] .badge {
+  top: -12px;
+  right: -8px;
+}
+
+/* Wide screens: the UI becomes a sidebar and the world gets the rest. */
+@media (min-width: 1000px) {
+  body[data-skin="world"] .shell {
+    max-width: 470px;
+    margin: 0 0 0 24px;
+  }
+
+  body[data-skin="world"] .counter .label,
+  body[data-skin="world"] .hint {
+    display: none;
+  }
+
+  body[data-skin="world"] .brand h1 {
+    font-size: 25px;
+  }
+}
+
+@media (max-width: 760px) {
+  .board[data-skin="world"] .tile {
+    gap: 5px;
+    padding: 4px 9px 4px 7px;
+    font-size: 12px;
+  }
+
+  .board[data-skin="world"] .world-dot {
+    width: 8px;
+    height: 8px;
+  }
 }
 
 /* ---------- toast ---------- */

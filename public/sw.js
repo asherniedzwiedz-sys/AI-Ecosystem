@@ -2,7 +2,7 @@
 // Network-first, so a deploy shows up on the next load; the cache is the offline fallback.
 // Bump VERSION when the shell file list changes. Mascot images aren't listed:
 // they're cached the first time they load, so a missing one can't break install.
-const VERSION = "v7";
+const VERSION = "v8";
 const CACHE = `switchboard-${VERSION}`;
 const SHELL = [
   "/",
@@ -16,13 +16,15 @@ const SHELL = [
   "/js/usage.js",
   "/js/setup.js",
   "/js/attachment.js",
+  "/js/world.js",
   "/manifest.webmanifest",
   "/icons/icon.svg",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
 ];
-const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
+// Fonts and the pinned Three.js build never change at a given URL, so cache them on first use.
+const CACHE_FIRST_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -73,7 +75,7 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin === self.location.origin) {
     event.respondWith(networkFirst(request));
-  } else if (FONT_HOSTS.includes(url.hostname)) {
+  } else if (CACHE_FIRST_HOSTS.includes(url.hostname)) {
     event.respondWith(cacheFirst(request));
   }
 });

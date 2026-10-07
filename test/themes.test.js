@@ -39,7 +39,15 @@ test("renderTile escapes text", () => {
   const evil = { ...ai("claude"), name: '<img src=x onerror="alert(1)">', tagline: "a & b" };
   for (const theme of Object.values(THEMES)) {
     const html = theme.renderTile(evil, 1, 0);
-    assert.doesNotMatch(html, /<img src=x/);
-    assert.match(html, /a &amp; b/);
+    assert.doesNotMatch(html, /<img src=x/, theme.id);
+    assert.match(html, /&lt;img src=x/, theme.id);
+    if (html.includes("a &")) assert.match(html, /a &amp; b/, theme.id);
   }
+});
+
+test("world: colors cover every AI and the 3D scene isn't loaded up front", () => {
+  assert.deepEqual(Object.keys(THEMES.world.colors).sort(), [...ORDER].sort());
+  for (const hex of Object.values(THEMES.world.colors)) assert.match(hex, /^#[0-9A-F]{6}$/i);
+  assert.equal(typeof THEMES.world.mount, "function");
+  assert.equal(THEMES.classic.mount, undefined);
 });

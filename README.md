@@ -12,7 +12,8 @@ Lines on the board: Claude, ChatGPT, Muse, Gemini, Copilot, Grok, DeepSeek, Perp
 - **Attach a file:** the Attach file button, drag and drop, or pasting a screenshot. The router (and the offline rules) factor in the kind of file: a PDF leans Claude, a spreadsheet Copilot, a video Gemini. A link can't carry a file to another site, so on send: a text or code file's contents go along with the prompt; an image is copied so you can paste it in; anything else gets a reminder to attach it on the AI's site (on phones, Share sends it straight to the AI's app). Files stay on the device; the router only sees the name, type and size, plus the start of a text file.
 - **Send to all:** copies the prompt once and opens all 8 AIs in new tabs (fills in a random prompt if the box is empty). Browsers often block extra tabs; the page says how many were blocked so you can allow pop-ups and retry.
 - **Tile sizes:** every send counts toward that AI (stored in `switchboard-usage`). Your most-used AI gets a 2x2 tile, the next two get 2x1, the rest 1x1 (ties don't promote anyone). The first visit offers a head start: pick your regulars, start even, or a random board. Settings has Redo setup and Reset usage.
-- **Themes:** tiles render through a theme. **Creatures** (default) shows each AI's mascot in a lamp-colored ring that bobs, and hops when routing lands on it; **Classic** is the original lamp tiles. Pick one in Settings (stored in `switchboard-theme`).
+- **Themes:** tiles render through a theme. **Creatures** (default) shows each AI's mascot in a lamp-colored ring that bobs, and hops when routing lands on it; **Classic** is the original lamp tiles; **World** is a tiny 3D diorama (below). Pick one in Settings (stored in `switchboard-theme`).
+- **World theme:** eight blob creatures run a vintage switchboard from their desks (Three.js 0.186.1 from jsDelivr via an import map, loaded only when World is picked, then cached for offline). Tap a creature (or its name tag) to send. Routing races the console lamps, swoops the camera to the pick, spotlights it and hops, then sends; browsers only allow opening a tab a few seconds after a tap, so if routing ran long it asks for one more tap instead. Usage sets each creature's size. Drag to look around (clamped). Light/dark switches between day and dusk; reduced motion makes the scene static and skips the swoop. If WebGL or the CDN isn't available, it falls back to Creatures.
 - **Offline:** a service worker caches the app, so it opens with no signal and routes with the rules.
 
 ## Project layout
@@ -27,6 +28,7 @@ public/            static site (Vercel serves this folder)
   js/usage.js      usage counts -> rank -> tile size tiers
   js/setup.js      first-run setup dialog
   js/attachment.js attached files: kind detection, reading, image prep
+  js/world.js      the 3D World theme (Three.js scene; loaded on demand)
   js/rules.js      offline keyword router (rulesPick)
   js/audio.js      WebAudio ticks + ding
   js/surprises.js  "Surprise me" prompts

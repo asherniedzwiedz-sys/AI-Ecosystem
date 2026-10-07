@@ -67,6 +67,8 @@ let relayoutTimer;
 let setup;
 let attachment = null; // see attachment.js
 let attachToken = 0; // ignores a slow read if another file was attached meanwhile
+let mounted = null; // what the active theme's mount() returned (the 3D world), if anything
+let mountToken = 0; // ignores a slow mount if the theme changed meanwhile
 
 // localStorage can throw (private mode, blocked storage): treat it as optional.
 const store = {
@@ -101,7 +103,6 @@ function buildBoard() {
     tile.dataset.id = id;
     tile.target = "_blank";
     tile.rel = "noopener";
-    tile.style.setProperty("--c", AIS[id].color);
     tile.addEventListener("click", () => onSend(id));
     tiles[id] = tile;
   }
@@ -120,6 +121,24 @@ function gridColumns() {
   return getComputedStyle(els.board).gridTemplateColumns.split(" ").filter(Boolean).length || 4;
 }
 
+// Readable text on a colored chip: dark ink on light colors, white on dark ones.
+function inkFor(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.19 ? "#15120e" : "#ffffff";
+}
+
+const colorOf = (id) => getTheme(themeId).colors?.[id] ?? AIS[id].color;
+
+function paint(el, id) {
+  const color = colorOf(id);
+  el.style.setProperty("--c", color);
+  el.style.setProperty("--c-ink", inkFor(color));
+}
+
 function renderBoard() {
   const theme = getTheme(themeId);
   els.board.dataset.skin = theme.id;
@@ -127,6 +146,7 @@ function renderBoard() {
 
   for (const { id, rank, count, tier, colSpan } of layout) {
     const tile = tiles[id];
+    paint(tile, id);
     tile.dataset.size = tier;
     tile.style.gridColumn = colSpan ? `span ${colSpan}` : "";
     // Only swap the inside when the theme's output changed: rebuilding would
@@ -140,7 +160,8 @@ function renderBoard() {
 
   // DOM order follows rank so tab order matches what you see. Only move
   // nodes when the order changed, since moving restarts their animations.
-  const inOrder = layout.every(({ id }, i) => els.board.children[i] === tiles[id]);
+  const shown = [...els.board.children].filter((node) => node.classList.contains("tile"));
+  const inOrder = layout.every(({ id }, i) => shown[i] === tiles[id]);
   if (!inOrder) els.board.append(...layout.map(({ id }) => tiles[id]));
 
   if (current) labelBadges(current.pick, current.runnerUp);
@@ -181,7 +202,7 @@ function refreshLinks() {
 function setSendLink(link, id, label) {
   link.href = sendTarget(id, outgoingText(els.prompt.value, attachment)).url;
   link.dataset.id = id;
-  link.style.setProperty("--c", AIS[id].color);
+  paint(link, id);
   link.replaceChildren(el("span", "dot"), el("span", "", label), el("span", "", "↗"));
 }
 
@@ -622,7 +643,19 @@ async function route() {
   refreshLinks();
   els.actions.hidden = false;
   bumpCounter();
+  if (mounted?.afterLanding) await mounted.afterLanding(result.pick);
   setBusy(false);
+  if (mounted?.sendsAfterLanding) sendAfterLanding(result.pick);
+}
+
+// The 3D world sends as soon as the pick lands. Browsers only allow opening a
+// tab shortly after a tap, so when routing took too long, ask for one more tap.
+function sendAfterLanding(id) {
+  if (navigator.userActivation?.isActive) {
+    tiles[id].click();
+  } else {
+    toast(`${AIS[id].name} is ready. Tap it to send.`);
+  }
 }
 
 async function surprise() {
@@ -680,11 +713,40 @@ function syncThemeColor() {
 
 /* ---------- settings + setup ---------- */
 
-function applyTheme(id) {
-  themeId = getTheme(id).id;
-  store.set(KEYS.theme, themeId);
+async function applyTheme(id, { persist = true } = {}) {
+  const theme = getTheme(id);
+  themeId = theme.id;
+  if (persist) store.set(KEYS.theme, themeId);
   for (const input of els.themePicker.querySelectorAll("input")) input.checked = input.value === themeId;
+  document.body.dataset.skin = theme.id;
+
+  const token = ++mountToken;
+  mounted?.unmount();
+  mounted = null;
   renderBoard();
+  refreshLinks();
+  if (!theme.mount) {
+    delete els.board.dataset.loading;
+    return;
+  }
+  els.board.dataset.loading = "";
+  try {
+    const handle = await theme.mount({
+      board: els.board,
+      tiles,
+      ids: ORDER,
+      layout: { shell: document.querySelector(".shell"), readout: $("readout") },
+    });
+    if (token !== mountToken) handle.unmount();
+    else mounted = handle;
+  } catch (err) {
+    if (token !== mountToken) return;
+    console.error("Theme failed to load:", err);
+    toast(`The ${theme.name} theme couldn't load here, so you're seeing ${getTheme(DEFAULT_THEME).name}.`);
+    applyTheme(DEFAULT_THEME, { persist: false }); // keep their choice for next time
+  } finally {
+    if (token === mountToken) delete els.board.dataset.loading;
+  }
 }
 
 function buildThemePicker() {
