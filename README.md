@@ -1,5 +1,7 @@
 # AI Switchboard
 
+**Status:** In progress.
+
 A hub for the main AI chatbots. Type a prompt, the operator (a Claude-backed router) picks the best AI for it, and one tap sends it there. Installs as an app on iPhone and desktop (PWA).
 
 Lines on the board: Claude, ChatGPT, Muse, Gemini, Copilot, Grok, DeepSeek, Perplexity.
